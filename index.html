@@ -197,14 +197,14 @@
                         <i class="fa-solid fa-floppy-disk text-lg"></i>
                     </div>
                     <div>
-                        <h3 class="text-sm font-bold text-slate-200">ビートをクラウド保存</h3>
-                        <p class="text-xs text-slate-500">作成した変拍子パターンに名前を付けていつでも読み出せます</p>
+                        <h3 class="text-sm font-bold text-slate-200" id="save-section-title">ビートをクラウド保存</h3>
+                        <p class="text-xs text-slate-500" id="save-section-desc">作成した変拍子パターンに名前を付けていつでも読み出せます</p>
                     </div>
                 </div>
                 <div class="flex w-full sm:w-auto max-w-md gap-2">
                     <input type="text" id="pattern-name-input" placeholder="リズム名 (例: 変則5拍子ドラム)" class="flex-grow bg-slate-950 border border-slate-800 hover:border-slate-700 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 focus:outline-none rounded-xl px-4 py-2 text-sm text-slate-200 transition-all">
                     <button onclick="saveCurrentPattern()" class="px-5 py-2 bg-indigo-600 hover:bg-indigo-500 active:scale-95 transition-all text-white font-bold text-sm rounded-xl flex items-center gap-2 shrink-0 shadow-lg shadow-indigo-600/10">
-                        <i class="fa-solid fa-cloud-arrow-up"></i> 保存
+                        <i class="fa-solid fa-cloud-arrow-up" id="save-btn-icon"></i> <span id="save-btn-text">保存</span>
                     </button>
                 </div>
             </div>
@@ -213,7 +213,7 @@
             <div id="saved-patterns-container" class="bg-slate-900/40 border border-slate-800/40 rounded-2xl p-5 hidden transition-all">
                 <h3 class="text-sm font-bold text-slate-400 mb-3 flex items-center gap-2">
                     <i class="fa-solid fa-folder-open text-indigo-400"></i>
-                    保存されたカスタムリズム
+                    <span id="saved-list-title">保存されたカスタムリズム</span>
                 </h3>
                 <div id="saved-patterns-list" class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
                     <!-- 動的ロード用 -->
@@ -281,17 +281,10 @@
 
     <!-- Firebase Scripts and Application Logic -->
     <script type="module">
-        // --- Firebase v11 Imports (MANDATORY RULES Compliance) ---
+        // --- Firebase v11 Imports ---
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
         import { getAuth, signInWithCustomToken, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
         import { getFirestore, doc, setDoc, getDoc, collection, query, onSnapshot, addDoc, updateDoc, deleteDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
-
-        // --- Firebase 環境変数の取得 ---
-        const firebaseConfig = JSON.parse(__firebase_config);
-        const app = initializeApp(firebaseConfig);
-        const auth = getAuth(app);
-        const db = getFirestore(app);
-        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
 
         // --- 状態管理 ---
         let bpm = 120;
@@ -300,7 +293,32 @@
         let isPlaying = false;
         let currentStep = 0;   // 現在再生中のステップ (0-indexed)
         let audioInitialized = false;
-        let currentUser = null; // Firebase Auth User
+        
+        // Firebase & LocalStorage 状態
+        let useFirebase = false;
+        let currentUser = null; 
+        let db = null;
+        let auth = null;
+        let appId = 'default-app-id';
+
+        // --- 安全なFirebase初期化 (環境変数チェック) ---
+        try {
+            // __firebase_config が定義されており、かつ中身が空でない場合のみFirebaseを起動
+            if (typeof __firebase_config !== 'undefined' && __firebase_config) {
+                const firebaseConfig = JSON.parse(__firebase_config);
+                const app = initializeApp(firebaseConfig);
+                auth = getAuth(app);
+                db = getFirestore(app);
+                appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+                useFirebase = true;
+                console.log("Firebase initialized successfully (Cloud Mode)");
+            } else {
+                console.log("Firebase config not found. Switching to Local Storage Mode.");
+            }
+        } catch (e) {
+            console.warn("Firebase initialization skipped or failed. Using Local Storage fallback.", e);
+            useFirebase = false;
+        }
 
         // タップテンポ用変数
         let tapTimes = [];
@@ -334,6 +352,7 @@
         // --- 3から50のドロップダウンオプションの生成 ---
         function initBeatsDropdown() {
             const selectEl = document.getElementById('beats-select');
+            if (!selectEl) return;
             selectEl.innerHTML = '';
             for (let i = 3; i <= 50; i++) {
                 const opt = document.createElement('option');
@@ -474,6 +493,7 @@
         // --- UI構築: シーケンサーグリッド ---
         function renderSequencer() {
             const grid = document.getElementById('sequencer-grid');
+            if (!grid) return;
             grid.innerHTML = ''; 
 
             const headerRow = document.createElement('div');
@@ -615,7 +635,8 @@
         }
 
         function highlightCurrentGridStep(stepIdx) {
-            document.getElementById('current-step-display').innerText = stepIdx + 1;
+            const currentStepDisp = document.getElementById('current-step-display');
+            if (currentStepDisp) currentStepDisp.innerText = stepIdx + 1;
 
             tracks.forEach(track => {
                 for (let i = 0; i < numBeats; i++) {
@@ -662,8 +683,10 @@
                 numBeats = nextBeats;
                 
                 // 表示およびドロップダウンの選択位置を同期
-                document.getElementById('beats-select').value = numBeats;
-                document.getElementById('total-step-display').innerText = numBeats;
+                const beatsSel = document.getElementById('beats-select');
+                if (beatsSel) beatsSel.value = numBeats;
+                const totalStepDisp = document.getElementById('total-step-display');
+                if (totalStepDisp) totalStepDisp.innerText = numBeats;
                 
                 tracks.forEach(track => {
                     if (!sequencerData[track.id]) {
@@ -787,8 +810,10 @@
             numBeats = 7;
             beatUnit = 8;
             
-            document.getElementById('beats-select').value = numBeats;
-            document.getElementById('total-step-display').innerText = numBeats;
+            const beatsSel = document.getElementById('beats-select');
+            if (beatsSel) beatsSel.value = numBeats;
+            const totalStepDisp = document.getElementById('total-step-display');
+            if (totalStepDisp) totalStepDisp.innerText = numBeats;
             document.getElementById('beat-unit-select').value = "8";
 
             sequencerData = {
@@ -810,8 +835,10 @@
             numBeats = beats;
             beatUnit = unit;
 
-            document.getElementById('beats-select').value = numBeats;
-            document.getElementById('total-step-display').innerText = numBeats;
+            const beatsSel = document.getElementById('beats-select');
+            if (beatsSel) beatsSel.value = numBeats;
+            const totalStepDisp = document.getElementById('total-step-display');
+            if (totalStepDisp) totalStepDisp.innerText = numBeats;
             document.getElementById('beat-unit-select').value = beatUnit.toString();
 
             tracks.forEach(track => {
@@ -856,10 +883,19 @@
             showToast(`${beats}/${unit}拍子プリセットをロードしました。`, "fa-sliders", "text-indigo-400");
         }
 
-        // --- Firestore 連携カスタムパターン保存ロジック (RULES 1, 2, 3 Complied) ---
+        // --- Firebase / LocalStorage ハイブリッド保存ロジック ---
         
-        // 1. Firebase 匿名サインイン & 認証状態監視 (RULE 3)
+        // ローカルストレージキー
+        const LOCAL_STORAGE_KEY = 'poly_metronome_patterns';
+
+        // 1. 認証の初期化 (Firebase が使用可能な場合のみ実行)
         const initAuth = async () => {
+            if (!useFirebase || !auth) {
+                // Firebase非対応環境(GitHub)時はLocalStorageから初期ロード
+                loadPatternsFromLocalStorage();
+                updateUIForLocalMode();
+                return;
+            }
             try {
                 if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
                     await signInWithCustomToken(auth, __initial_auth_token);
@@ -868,25 +904,50 @@
                 }
             } catch (e) {
                 console.error("Authentication failed: ", e);
+                // 認証エラー時は安全にローカルストレージモードへ移行
+                useFirebase = false;
+                loadPatternsFromLocalStorage();
+                updateUIForLocalMode();
             }
         };
 
-        onAuthStateChanged(auth, (user) => {
-            currentUser = user;
-            if (user) {
-                // 認証完了したらデータ取得の監視を開始
-                subscribeSavedPatterns();
+        // Firebase 認証状態監視
+        if (useFirebase && auth) {
+            onAuthStateChanged(auth, (user) => {
+                currentUser = user;
+                if (user) {
+                    subscribeSavedPatterns();
+                } else {
+                    // 認証エラー、またはログアウト時
+                    useFirebase = false;
+                    loadPatternsFromLocalStorage();
+                    updateUIForLocalMode();
+                }
+            });
+        }
+
+        // GitHub環境向けのUI切り替え
+        function updateUIForLocalMode() {
+            const titleEl = document.getElementById('save-section-title');
+            const descEl = document.getElementById('save-section-desc');
+            const btnIcon = document.getElementById('save-btn-icon');
+            const btnText = document.getElementById('save-btn-text');
+            const listTitle = document.getElementById('saved-list-title');
+
+            if (titleEl) titleEl.innerText = "ビートをブラウザに保存";
+            if (descEl) descEl.innerText = "ブラウザのローカル保存(LocalStorage)にビートを記録します";
+            if (btnIcon) {
+                btnIcon.className = "fa-solid fa-square-plus";
             }
-        });
+            if (btnText) btnText.innerText = "保存";
+            if (listTitle) listTitle.innerText = "保存されたカスタムリズム (ローカル)";
+        }
 
-        // 2. パブリックデータパスでの監視 (RULE 1 & 2)
+        // 2. クラウドデータのリアルタイム監視 (Firebase使用時)
         function subscribeSavedPatterns() {
-            if (!currentUser) return;
+            if (!useFirebase || !currentUser || !db) return;
 
-            // 厳格なパス設定 (RULE 1)
             const collectionRef = collection(db, 'artifacts', appId, 'public', 'data', 'patterns');
-            
-            // 複合クエリを避け、単純な全件取得からJSでソートする (RULE 2)
             const q = query(collectionRef);
 
             onSnapshot(q, (snapshot) => {
@@ -898,7 +959,6 @@
                     });
                 });
 
-                // メモリ上でのソート処理（新しく追加した順） (RULE 2)
                 patternsList.sort((a, b) => {
                     const timeA = a.createdAt?.seconds || 0;
                     const timeB = b.createdAt?.seconds || 0;
@@ -907,19 +967,28 @@
 
                 renderSavedPatternsList(patternsList);
             }, (error) => {
-                console.error("Firestore read error: ", error);
+                console.warn("Firestore real-time watch failed, falling back to LocalStorage.", error);
+                useFirebase = false;
+                loadPatternsFromLocalStorage();
+                updateUIForLocalMode();
             });
         }
 
-        // 3. 現在のリズムを保存
-        async function saveCurrentPattern() {
-            if (!currentUser) {
-                showToast("データベースへの接続を待機中...", "fa-triangle-exclamation", "text-amber-400");
-                return;
+        // 3. ローカルストレージデータの読み込み
+        function loadPatternsFromLocalStorage() {
+            try {
+                const raw = localStorage.getItem(LOCAL_STORAGE_KEY);
+                const list = raw ? JSON.parse(raw) : [];
+                renderSavedPatternsList(list);
+            } catch (e) {
+                console.error("Failed to load from local storage", e);
             }
+        }
 
+        // 4. 新規パターンの保存
+        async function saveCurrentPattern() {
             const nameInput = document.getElementById('pattern-name-input');
-            const patternName = nameInput.value.trim();
+            const patternName = nameInput ? nameInput.value.trim() : '';
 
             if (!patternName) {
                 showToast("リズムの名前を入力してください。", "fa-triangle-exclamation", "text-amber-400");
@@ -931,28 +1000,51 @@
                 bpm: bpm,
                 numBeats: numBeats,
                 beatUnit: beatUnit,
-                sequencerData: JSON.parse(JSON.stringify(sequencerData)), // Deep Copy
-                userId: currentUser.uid,
-                createdAt: { seconds: Math.floor(Date.now() / 1000) } // timestamp代替
+                sequencerData: JSON.parse(JSON.stringify(sequencerData)), 
+                createdAt: { seconds: Math.floor(Date.now() / 1000) } 
             };
 
-            try {
-                const collectionRef = collection(db, 'artifacts', appId, 'public', 'data', 'patterns');
-                await addDoc(collectionRef, docData);
-                
-                nameInput.value = '';
-                showToast(`「${patternName}」をクラウドに保存しました！`, "fa-cloud-arrow-up", "text-emerald-400");
-            } catch (err) {
-                console.error("Firestore save error: ", err);
-                showToast("保存に失敗しました。", "fa-circle-exclamation", "text-rose-400");
+            if (useFirebase && currentUser && db) {
+                // Firebase (クラウド) 保存
+                try {
+                    docData.userId = currentUser.uid;
+                    const collectionRef = collection(db, 'artifacts', appId, 'public', 'data', 'patterns');
+                    await addDoc(collectionRef, docData);
+                    
+                    if (nameInput) nameInput.value = '';
+                    showToast(`「${patternName}」をクラウドに保存しました！`, "fa-cloud-arrow-up", "text-emerald-400");
+                } catch (err) {
+                    console.error("Firestore save error: ", err);
+                    showToast("保存に失敗しました。", "fa-circle-exclamation", "text-rose-400");
+                }
+            } else {
+                // LocalStorage (ローカル) 保存
+                try {
+                    const raw = localStorage.getItem(LOCAL_STORAGE_KEY);
+                    const list = raw ? JSON.parse(raw) : [];
+                    
+                    docData.id = 'local_' + Date.now();
+                    list.unshift(docData); // 先頭に追加
+                    
+                    localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(list));
+                    if (nameInput) nameInput.value = '';
+                    
+                    renderSavedPatternsList(list);
+                    showToast(`「${patternName}」をローカルに保存しました！`, "fa-square-plus", "text-emerald-400");
+                } catch (err) {
+                    console.error("Local storage save error: ", err);
+                    showToast("ローカルへの保存に失敗しました。", "fa-circle-exclamation", "text-rose-400");
+                }
             }
         }
 
-        // 4. 保存リストのレンダリング
+        // 5. 保存パターンの読み込みリスト描画
         function renderSavedPatternsList(list) {
             const container = document.getElementById('saved-patterns-container');
             const listEl = document.getElementById('saved-patterns-list');
             
+            if (!container || !listEl) return;
+
             if (list.length === 0) {
                 container.classList.add('hidden');
                 return;
@@ -991,7 +1083,7 @@
                     </div>
                 `;
 
-                // ロード処理・削除処理のためにデータ参照をグローバルに持たせる
+                // ロード用キャッシュ
                 if (!window.loadedPatternsCache) window.loadedPatternsCache = {};
                 window.loadedPatternsCache[pattern.id] = pattern;
 
@@ -999,7 +1091,7 @@
             });
         }
 
-        // 5. 保存パターンのロード
+        // 6. パターンのロード実行
         window.loadPattern = function(patternId) {
             const pattern = window.loadedPatternsCache?.[patternId];
             if (!pattern) return;
@@ -1012,8 +1104,13 @@
             // UI反映
             document.getElementById('tempo-input').value = bpm;
             document.getElementById('tempo-slider').value = bpm;
-            document.getElementById('beats-select').value = numBeats;
-            document.getElementById('total-step-display').innerText = numBeats;
+            
+            const beatsSel = document.getElementById('beats-select');
+            if (beatsSel) beatsSel.value = numBeats;
+            
+            const totalStepDisp = document.getElementById('total-step-display');
+            if (totalStepDisp) totalStepDisp.innerText = numBeats;
+            
             document.getElementById('beat-unit-select').value = beatUnit.toString();
 
             if (audioInitialized) {
@@ -1023,20 +1120,35 @@
             showToast(`パターン「${pattern.name}」をロードしました！`, "fa-folder-open", "text-indigo-400");
         };
 
-        // 6. パターンの削除
+        // 7. パターンの削除実行
         window.deletePattern = async function(patternId, patternName) {
-            if (!currentUser) return;
-
-            const confirmDelete = confirm(`リズム「${patternName}」をクラウドから完全に削除しますか？`);
+            const confirmDelete = confirm(`リズム「${patternName}」を完全に削除しますか？`);
             if (!confirmDelete) return;
 
-            try {
-                const docRef = doc(db, 'artifacts', appId, 'public', 'data', 'patterns', patternId);
-                await deleteDoc(docRef);
-                showToast(`「${patternName}」を削除しました。`, "fa-trash-can", "text-rose-400");
-            } catch (err) {
-                console.error("Firestore delete error: ", err);
-                showToast("削除に失敗しました。", "fa-circle-exclamation", "text-rose-400");
+            if (useFirebase && db) {
+                // クラウド削除
+                try {
+                    const docRef = doc(db, 'artifacts', appId, 'public', 'data', 'patterns', patternId);
+                    await deleteDoc(docRef);
+                    showToast(`「${patternName}」を削除しました。`, "fa-trash-can", "text-rose-400");
+                } catch (err) {
+                    console.error("Firestore delete error: ", err);
+                    showToast("削除に失敗しました。", "fa-circle-exclamation", "text-rose-400");
+                }
+            } else {
+                // ローカル削除
+                try {
+                    const raw = localStorage.getItem(LOCAL_STORAGE_KEY);
+                    let list = raw ? JSON.parse(raw) : [];
+                    list = list.filter(item => item.id !== patternId);
+                    
+                    localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(list));
+                    renderSavedPatternsList(list);
+                    showToast(`「${patternName}」を削除しました。`, "fa-trash-can", "text-rose-400");
+                } catch (err) {
+                    console.error("Local storage delete error: ", err);
+                    showToast("削除に失敗しました。", "fa-circle-exclamation", "text-rose-400");
+                }
             }
         };
 
@@ -1061,6 +1173,8 @@
             const toastMsg = document.getElementById('toast-msg');
             const toastIcon = document.getElementById('toast-icon');
 
+            if (!toast || !toastMsg || !toastIcon) return;
+
             toastMsg.innerText = message;
             toastIcon.className = `fa-solid ${iconClass} ${colorClass}`;
 
@@ -1077,7 +1191,8 @@
         window.addEventListener('DOMContentLoaded', () => {
             initBeatsDropdown();
             renderSequencer();
-            document.getElementById('total-step-display').innerText = numBeats;
+            const totalStepDisp = document.getElementById('total-step-display');
+            if (totalStepDisp) totalStepDisp.innerText = numBeats;
             initAuth();
         });
     </script>
