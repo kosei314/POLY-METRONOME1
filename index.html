@@ -26,6 +26,10 @@
         .custom-scrollbar::-webkit-scrollbar-thumb:hover {
             background: #64748b;
         }
+        /* 発音時のフラッシュ用トランジション */
+        .track-label-flash {
+            transition: background-color 0.05s ease-out, transform 0.05s ease-out;
+        }
     </style>
 </head>
 <body class="bg-slate-950 text-slate-100 min-h-screen flex flex-col justify-between font-sans">
@@ -219,14 +223,64 @@
                 </div>
             </div>
 
+            <!-- 【範囲選択＆ポリリズム構築コントロール】 -->
+            <div id="edit-control-panel" class="bg-slate-900/95 border-2 border-dashed border-indigo-500/50 rounded-2xl p-5 hidden transition-all flex flex-col md:flex-row items-center justify-between gap-4 shadow-xl shadow-indigo-500/5">
+                <div class="flex items-center gap-3 w-full md:w-auto">
+                    <div class="w-10 h-10 bg-indigo-500/20 border border-indigo-400/40 rounded-xl flex items-center justify-center shrink-0 text-indigo-400 animate-pulse">
+                        <i class="fa-solid fa-wave-square text-lg"></i>
+                    </div>
+                    <div>
+                        <h3 class="text-sm font-bold text-slate-100">ポリリズムビルダー</h3>
+                        <p class="text-xs text-slate-400" id="edit-panel-desc">トラックとステップの範囲を指定してください</p>
+                    </div>
+                </div>
+                <!-- 各種操作ボタンとドロップダウン -->
+                <div class="flex flex-wrap items-center gap-3 w-full md:w-auto justify-end">
+                    <div class="flex items-center gap-2 bg-slate-950 px-3 py-1.5 rounded-xl border border-slate-800">
+                        <span class="text-xs text-slate-500 font-bold uppercase">鳴らす音数:</span>
+                        <select id="polyrhythm-count" class="bg-transparent text-indigo-400 font-bold text-sm focus:outline-none cursor-pointer">
+                            <option value="2">2連音</option>
+                            <option value="3" selected>3連音</option>
+                            <option value="4">4連音</option>
+                            <option value="5">5連音</option>
+                            <option value="6">6連音</option>
+                            <option value="7">7連音</option>
+                            <option value="8">8連音</option>
+                            <option value="9">9連音</option>
+                            <option value="10">10連音</option>
+                            <option value="11">11連音</option>
+                            <option value="12">12連音</option>
+                            <option value="16">16連音</option>
+                        </select>
+                    </div>
+                    <button onclick="applyPolyrhythm()" class="px-4 py-2 bg-gradient-to-r from-indigo-500 to-purple-600 hover:from-indigo-600 hover:to-purple-700 text-white font-bold text-xs rounded-lg transition-all shadow-md shadow-indigo-600/20">
+                        ポリリズム適用
+                    </button>
+                    <button id="delete-poly-btn" onclick="removePolyrhythmAtSelection()" class="px-4 py-2 bg-rose-500/20 hover:bg-rose-500/30 border border-rose-500/40 text-rose-400 font-bold text-xs rounded-lg transition-all hidden">
+                        範囲内のポリリズムを解除
+                    </button>
+                    <button onclick="clearSelection()" class="px-3 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-xs rounded-lg transition-all">
+                        キャンセル
+                    </button>
+                </div>
+            </div>
+
             <!-- 下部セクション: リズムマシン・グリッド -->
             <div class="bg-slate-900/60 border border-slate-800 rounded-2xl p-6 shadow-xl flex flex-col gap-4">
                 
                 <!-- ヘッダー部 -->
                 <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-800/80">
-                    <div>
-                        <h2 class="text-base font-bold text-slate-200">ステップシーケンサー</h2>
-                        <p class="text-xs text-slate-500 mt-0.5">縦：音色トラック / 横：時間ステップ（クリックして発音予約。横スクロール可能）</p>
+                    <div class="flex flex-col sm:flex-row sm:items-center gap-4">
+                        <div>
+                            <h2 class="text-base font-bold text-slate-200">ステップシーケンサー</h2>
+                            <p class="text-xs text-slate-500 mt-0.5" id="sequencer-mode-tip">縦：音色トラック / 横：時間ステップ（クリックして発音予約。横スクロール可能）</p>
+                        </div>
+                        
+                        <!-- 【エディットモード切り替えボタン】 -->
+                        <button id="edit-mode-toggle" onclick="toggleEditMode()" class="px-4 py-1.5 bg-slate-800 hover:bg-slate-700 active:scale-95 text-slate-300 rounded-xl border border-slate-700 text-xs font-bold transition-all flex items-center gap-2 shadow-inner">
+                            <span class="w-2.5 h-2.5 rounded-full bg-slate-600" id="edit-mode-indicator"></span>
+                            <i class="fa-solid fa-pen-to-square"></i> エディットモード
+                        </button>
                     </div>
                     <!-- ビジュアルインジケーター（再生中の進行状況 & ミニ再生コントロール） -->
                     <div class="flex items-center gap-2 self-start sm:self-auto">
@@ -300,6 +354,12 @@
         let currentStep = 0;   // 現在再生中のステップ (0-indexed)
         let audioInitialized = false;
         
+        // エディットモード＆選択範囲管理
+        let isEditMode = false;
+        let selectedTrack = null;      // 選択したトラックID
+        let selectionStart = null;     // 選択開始ステップ (0-indexed)
+        let selectionEnd = null;       // 選択終了ステップ (0-indexed)
+
         // Firebase & LocalStorage 状態
         let useFirebase = false;
         let currentUser = null; 
@@ -344,6 +404,15 @@
             'kick':      [true,  false, false, true,  false, true,  false],
             'snare':     [false, false, true,  false, true,  false, true],
             'hat':       [true,  true,  true,  true,  true,  true,  true]
+        };
+
+        // ポリリズム構築用データの初期化（trackId -> array of objects { start, end, count, activeSteps }）
+        let polyrhythms = {
+            'beep-high': [],
+            'beep-low': [],
+            'kick': [],
+            'snare': [],
+            'hat': []
         };
 
         // --- 音源ノード ---
@@ -443,6 +512,7 @@
 
         // --- スケジューラー＆シーケンサーループの構築 ---
         function setupTransportLoop() {
+            // 完全に登録されているイベント群をクリーンアップ
             Tone.Transport.cancel();
 
             let interval = "4n";
@@ -450,23 +520,81 @@
             else if (beatUnit === 16) interval = "16n";
             else if (beatUnit === 3) interval = "8t";
 
+            // 1ステップの基準時間（秒）を毎回動的に引き出すヘルパー
+            const getStepDuration = () => Tone.Time(interval).toSeconds();
+
+            // スケジューラー内での実進行カウンター変数 (メインスレッドのUIと干渉せず、ループ内で完結させる)
+            let schedulerStep = 0;
+
+            // Tone.Transportのループ関数
             Tone.Transport.scheduleRepeat((time) => {
+                const stepDuration = getStepDuration();
+                const stepIdx = schedulerStep; // キャプチャ
+
                 tracks.forEach(track => {
-                    const stepEnabled = sequencerData[track.id]?.[currentStep];
-                    if (stepEnabled) {
-                        playTrackSound(track.synthType, time, currentStep);
+                    const trackPolys = polyrhythms[track.id] || [];
+                    // キャプチャされた高精度タイムライン上のステップ（stepIdx）に基づいてポリリズムを探す
+                    const activePoly = trackPolys.find(p => p.start === stepIdx);
+
+                    if (activePoly) {
+                        // 1. ポリリズム発音スケジューリング（高精度サブタイミング）
+                        const totalBeatsRange = (activePoly.end - activePoly.start + 1);
+                        const totalDuration = totalBeatsRange * stepDuration;
+                        const individualInterval = totalDuration / activePoly.count;
+
+                        if (!activePoly.activeSteps || activePoly.activeSteps.length !== activePoly.count) {
+                            activePoly.activeSteps = Array(activePoly.count).fill(true);
+                        }
+
+                        for (let i = 0; i < activePoly.count; i++) {
+                            if (activePoly.activeSteps[i]) {
+                                // 基準開始時間（time）から、個々の子マスの遅延分を厳密に足して、ブレを1ミリ秒も発生させない
+                                const exactPlayTime = time + (i * individualInterval);
+                                playTrackSound(track.synthType, exactPlayTime, activePoly.start + i);
+
+                                // 音色のビジュアルフラッシュ
+                                Tone.Draw.schedule(() => {
+                                    flashTrackLabel(track.id);
+                                }, exactPlayTime);
+                            }
+                        }
+                    }
+
+                    // 現在の予約対象ステップがポリリズムの内側に入っているか判定
+                    const isStepInsideAnyPoly = trackPolys.some(p => stepIdx >= p.start && stepIdx <= p.end);
+
+                    // 通常範囲の音色トリガー
+                    if (!isStepInsideAnyPoly) {
+                        const stepEnabled = sequencerData[track.id]?.[stepIdx];
+                        if (stepEnabled) {
+                            playTrackSound(track.synthType, time, stepIdx);
+                        }
                     }
                 });
 
-                const activeStep = currentStep;
+                // メインスレッド（UI側）のハイライト更新を高精度タイミングに合わせてスケジュール登録する
                 Tone.Draw.schedule(() => {
-                    highlightCurrentGridStep(activeStep);
+                    // 現在再生中のステップを安全に同期
+                    currentStep = stepIdx;
+                    highlightCurrentGridStep(stepIdx);
                 }, time);
 
-                currentStep = (currentStep + 1) % numBeats;
+                // スケジューラー内カウンターを進める
+                schedulerStep = (schedulerStep + 1) % numBeats;
             }, interval);
 
             Tone.Transport.bpm.value = bpm;
+        }
+
+        // 音が発音された瞬間にラベルを光らせる
+        function flashTrackLabel(trackId) {
+            const labelEl = document.getElementById(`label-container-${trackId}`);
+            if (labelEl) {
+                labelEl.classList.add('bg-indigo-500/30', 'scale-105', 'border-indigo-400');
+                setTimeout(() => {
+                    labelEl.classList.remove('bg-indigo-500/30', 'scale-105', 'border-indigo-400');
+                }, 80);
+            }
         }
 
         // --- 音源再生処理 ---
@@ -492,6 +620,231 @@
                 }
             } catch (err) {
                 console.error("Sound trigger error:", err);
+            }
+        }
+
+        // --- エディットモードトグルの処理 ---
+        function toggleEditMode() {
+            if (!audioInitialized) {
+                initAudio();
+            }
+            isEditMode = !isEditMode;
+
+            const toggleBtn = document.getElementById('edit-mode-toggle');
+            const indicator = document.getElementById('edit-mode-indicator');
+            const tipEl = document.getElementById('sequencer-mode-tip');
+
+            if (isEditMode) {
+                toggleBtn.className = "px-4 py-1.5 bg-indigo-500/10 hover:bg-indigo-500/20 text-indigo-400 rounded-xl border-2 border-indigo-500 text-xs font-bold transition-all flex items-center gap-2 shadow-[0_0_15px_rgba(99,102,241,0.2)] animate-pulse";
+                indicator.className = "w-2.5 h-2.5 rounded-full bg-indigo-400 shadow-[0_0_8px_rgba(129,140,248,1)]";
+                if (tipEl) tipEl.innerHTML = "<span class='text-indigo-400 font-bold'>【エディットモード起動中】</span> 任意の2つのステップをタップして範囲選択するか、左端の音色名を押して全選択してください。";
+                showToast("エディットモード起動：範囲を選択してください。", "fa-pen-to-square", "text-indigo-400");
+            } else {
+                toggleBtn.className = "px-4 py-1.5 bg-slate-800 hover:bg-slate-700 active:scale-95 text-slate-300 rounded-xl border border-slate-700 text-xs font-bold transition-all flex items-center gap-2 shadow-inner";
+                indicator.className = "w-2.5 h-2.5 rounded-full bg-slate-600";
+                if (tipEl) tipEl.innerText = "縦：音色トラック / 横：時間ステップ（クリックして発音予約。横スクロール可能）";
+                clearSelection();
+            }
+            renderSequencer();
+        }
+
+        // 選択状況をリセットする
+        function clearSelection() {
+            selectedTrack = null;
+            selectionStart = null;
+            selectionEnd = null;
+            
+            const panel = document.getElementById('edit-control-panel');
+            if (panel) panel.classList.add('hidden');
+            
+            renderSequencer();
+        }
+
+        // トラック名(ラベル)を選択して全選択にする機能
+        window.selectEntireTrack = function(trackId) {
+            if (!isEditMode) {
+                toggleEditMode();
+            }
+
+            selectedTrack = trackId;
+            selectionStart = 0;
+            selectionEnd = numBeats - 1;
+
+            updateEditPanelUI();
+            renderSequencer();
+        };
+
+        // 任意のグリッドマスをクリック・タップした際の選択ハンドラー
+        function handleGridClick(trackId, stepIndex) {
+            if (!isEditMode) {
+                // 通常モードなら通常のオン/オフ切り替え
+                toggleStep(trackId, stepIndex);
+                return;
+            }
+
+            // --- エディットモード時の処理 ---
+            if (selectedTrack !== trackId) {
+                selectedTrack = trackId;
+                selectionStart = stepIndex;
+                selectionEnd = null;
+            } else {
+                if (selectionStart === null) {
+                    selectionStart = stepIndex;
+                } else if (selectionEnd === null) {
+                    selectionEnd = stepIndex;
+                    if (selectionStart > selectionEnd) {
+                        const temp = selectionStart;
+                        selectionStart = selectionEnd;
+                        selectionEnd = temp;
+                    }
+                } else {
+                    selectionStart = stepIndex;
+                    selectionEnd = null;
+                }
+            }
+
+            updateEditPanelUI();
+            renderSequencer();
+        }
+
+        // 下部のポリリズムコントロールパネルの表示内容を更新 (選択範囲内のポリリズム検出追加)
+        function updateEditPanelUI() {
+            const panel = document.getElementById('edit-control-panel');
+            const desc = document.getElementById('edit-panel-desc');
+            const deleteBtn = document.getElementById('delete-poly-btn');
+            
+            if (!selectedTrack || selectionStart === null) {
+                panel.classList.add('hidden');
+                return;
+            }
+
+            panel.classList.remove('hidden');
+            const track = tracks.find(t => t.id === selectedTrack);
+            const instrumentName = track ? track.name : selectedTrack;
+
+            if (selectionEnd === null) {
+                desc.innerHTML = `<span class="text-indigo-400 font-bold">${instrumentName}</span> のステップ <span class="text-indigo-300 font-mono font-bold">${selectionStart + 1}</span> を選択中。同じトラックの終点をタップしてください。`;
+                
+                // 1ステップだけ選択中の場合、その1マスがポリリズムの範囲に入っているか部分一致で判定
+                const trackPolys = polyrhythms[selectedTrack] || [];
+                const hasExisting = trackPolys.some(p => selectionStart >= p.start && selectionStart <= p.end);
+                if (hasExisting) {
+                    deleteBtn.classList.remove('hidden');
+                } else {
+                    deleteBtn.classList.add('hidden');
+                }
+            } else {
+                const len = (selectionEnd - selectionStart + 1);
+                desc.innerHTML = `<span class="text-indigo-400 font-bold">${instrumentName}</span> ステップ <span class="text-indigo-300 font-mono font-bold">${selectionStart + 1} 〜 ${selectionEnd + 1}</span> (計 ${len}ステップ) が選択されました。`;
+                
+                // 選択された範囲に一部分でも重なるポリリズムが存在するかチェック (改良版検出ロジック)
+                const trackPolys = polyrhythms[selectedTrack] || [];
+                const hasOverlappingPoly = trackPolys.some(p => p.start <= selectionEnd && p.end >= selectionStart);
+                
+                if (hasOverlappingPoly) {
+                    deleteBtn.classList.remove('hidden');
+                } else {
+                    deleteBtn.classList.add('hidden');
+                }
+            }
+        }
+
+        // ポリリズムの適用 (衝突部分を完全排除する上書き機能を追加)
+        window.applyPolyrhythm = function() {
+            if (!selectedTrack || selectionStart === null) {
+                showToast("選択範囲が未確定です。ステップを選択してください。", "fa-triangle-exclamation", "text-amber-400");
+                return;
+            }
+
+            // 終端が未選択（1ステップのみ選択）の場合は、始端＝終端として処理
+            const finalEnd = selectionEnd !== null ? selectionEnd : selectionStart;
+
+            const countSelect = document.getElementById('polyrhythm-count');
+            const countValue = parseInt(countSelect.value);
+
+            if (isNaN(countValue) || countValue < 2) return;
+
+            if (!polyrhythms[selectedTrack]) {
+                polyrhythms[selectedTrack] = [];
+            }
+            
+            // 重なるまたは完全に選択範囲に被る既存のポリリズム範囲を事前除去 (重複防止上書きロジック)
+            polyrhythms[selectedTrack] = polyrhythms[selectedTrack].filter(p => {
+                const overlap = (p.start <= finalEnd && p.end >= selectionStart);
+                return !overlap;
+            });
+
+            // 新規ポリリズムを挿入
+            polyrhythms[selectedTrack].push({
+                start: selectionStart,
+                end: finalEnd,
+                count: countValue,
+                activeSteps: Array(countValue).fill(true)
+            });
+
+            if (audioInitialized) setupTransportLoop();
+
+            // 通常のグリッドオンオフデータをクリア（ポリリズム音のみが鳴るように）
+            for (let i = selectionStart; i <= finalEnd; i++) {
+                sequencerData[selectedTrack][i] = false;
+            }
+
+            showToast("ポリリズムを適用しました！子マスタップで個別にオンオフできます。", "fa-wave-square", "text-indigo-400");
+            clearSelection();
+        };
+
+        // 選択された範囲に存在するポリリズムを完全削除 (重なり対応一括解除)
+        window.removePolyrhythmAtSelection = function() {
+            if (!selectedTrack || selectionStart === null) return;
+            const finalEnd = selectionEnd !== null ? selectionEnd : selectionStart;
+
+            if (polyrhythms[selectedTrack]) {
+                // 部分一致を含め、選択範囲と被っているポリリズムをすべてフィルタリング除去
+                polyrhythms[selectedTrack] = polyrhythms[selectedTrack].filter(p => {
+                    const overlap = (p.start <= finalEnd && p.end >= selectionStart);
+                    return !overlap;
+                });
+            }
+
+            if (audioInitialized) setupTransportLoop();
+            showToast("選択範囲内のポリリズムを解除しました。", "fa-trash", "text-slate-400");
+            clearSelection();
+        };
+
+        // ポリリズムの個別「子マス（サブセル）」のオンオフ制御
+        window.togglePolySubStep = function(trackId, polyStart, subIndex) {
+            if (!audioInitialized) {
+                initAudio();
+                return;
+            }
+            const trackPolys = polyrhythms[trackId] || [];
+            const poly = trackPolys.find(p => p.start === polyStart);
+            if (poly) {
+                // 子マスの配列を確保
+                if (!poly.activeSteps || poly.activeSteps.length !== poly.count) {
+                    poly.activeSteps = Array(poly.count).fill(true);
+                }
+                poly.activeSteps[subIndex] = !poly.activeSteps[subIndex];
+                
+                // 発音テスト
+                if (poly.activeSteps[subIndex]) {
+                    const track = tracks.find(t => t.id === trackId);
+                    if (track) playTrackSound(track.synthType, Tone.now(), subIndex);
+                }
+                
+                renderSequencer();
+            }
+        };
+
+        // サブステップのカラー割り当て
+        function getActiveSubStepClasses(color) {
+            switch (color) {
+                case 'indigo': return 'bg-indigo-500 hover:bg-indigo-400 border-indigo-400 text-slate-950 shadow-lg shadow-indigo-500/20';
+                case 'violet': return 'bg-violet-500 hover:bg-violet-400 border-violet-400 text-slate-950 shadow-lg shadow-violet-500/20';
+                case 'emerald': return 'bg-emerald-500 hover:bg-emerald-400 border-emerald-400 text-slate-950 shadow-lg shadow-emerald-500/20';
+                case 'sky': return 'bg-sky-500 hover:bg-sky-400 border-sky-400 text-slate-950 shadow-lg shadow-sky-500/20';
+                case 'amber': return 'bg-amber-500 hover:bg-amber-400 border-amber-400 text-slate-950 shadow-lg shadow-amber-500/20';
+                default: return 'bg-slate-300 hover:bg-slate-200 border-slate-100 text-slate-950';
             }
         }
 
@@ -544,10 +897,19 @@
 
             tracks.forEach(track => {
                 const row = document.createElement('div');
-                row.className = "flex items-center gap-2 group";
+                row.className = "flex items-center gap-2 group relative";
 
+                // 左側の楽器ラベル (エディットモード時は音色クリックで全選択)
                 const label = document.createElement('div');
-                label.className = "w-28 flex items-center justify-between pr-4 shrink-0 text-slate-300 font-bold text-xs select-none";
+                label.id = `label-container-${track.id}`;
+                label.className = `w-28 flex items-center justify-between pr-4 shrink-0 text-slate-300 font-bold text-xs select-none rounded-xl p-1 border border-transparent track-label-flash
+                    ${isEditMode ? 'cursor-pointer hover:bg-indigo-500/10 hover:border-indigo-500/20 hover:text-indigo-400' : ''}`;
+                
+                if (isEditMode) {
+                    label.onclick = () => selectEntireTrack(track.id);
+                    label.title = "クリックでこのトラックを全範囲選択";
+                }
+
                 label.innerHTML = `
                     <span class="flex items-center gap-2">
                         <span class="w-6 h-6 rounded-lg bg-slate-800 flex items-center justify-center text-[10px] text-slate-400 group-hover:text-${track.color}-400 group-hover:bg-${track.color}-500/10 transition-colors">
@@ -555,15 +917,20 @@
                         </span>
                         <span>${track.name}</span>
                     </span>
-                    <button onclick="window.previewInstrument('${track.synthType}')" class="text-[10px] text-slate-600 hover:text-slate-400 active:scale-90 transition-all px-1" title="試聴">
+                    ${!isEditMode ? `
+                    <button onclick="event.stopPropagation(); window.previewInstrument('${track.synthType}')" class="text-[10px] text-slate-600 hover:text-slate-400 active:scale-90 transition-all px-1" title="試聴">
                         <i class="fa-solid fa-play"></i>
                     </button>
+                    ` : `
+                    <span class="text-[9px] text-indigo-400 font-medium opacity-70 bg-indigo-500/10 px-1 py-0.5 rounded border border-indigo-500/20">全選択</span>
+                    `}
                 `;
                 row.appendChild(label);
 
                 const stepsWrapper = document.createElement('div');
-                stepsWrapper.className = "flex items-center gap-1.5";
+                stepsWrapper.className = "flex items-center gap-1.5 relative";
 
+                // 配列の長さ検証
                 if (!sequencerData[track.id]) {
                     sequencerData[track.id] = Array(numBeats).fill(false);
                 } else if (sequencerData[track.id].length < numBeats) {
@@ -574,27 +941,125 @@
                     sequencerData[track.id] = sequencerData[track.id].slice(0, numBeats);
                 }
 
-                for (let i = 0; i < numBeats; i++) {
-                    const isActive = sequencerData[track.id][i];
-                    
-                    const btn = document.createElement('button');
-                    btn.id = `step-${track.id}-${i}`;
-                    btn.className = `w-11 h-11 rounded-xl transition-all duration-150 relative flex items-center justify-center border-2 shadow-sm
-                        ${isActive 
-                            ? getActiveStepClasses(track.color) 
-                            : 'bg-slate-900/80 hover:bg-slate-800 border-slate-800/80 hover:border-slate-700/60'
-                        }`;
-                    
-                    const dot = document.createElement('span');
-                    dot.className = `w-2 h-2 rounded-full transition-all duration-150 ${isActive ? 'bg-slate-950 scale-110' : 'bg-slate-800'}`;
-                    btn.appendChild(dot);
+                const trackPolys = polyrhythms[track.id] || [];
 
-                    if (i === 0) {
-                        btn.classList.add('ring-1', 'ring-indigo-500/20');
+                for (let i = 0; i < numBeats; ) {
+                    // 通常モードの時はポリリズムを「分割された子マスの束」として美しく1つの区画にレンダリング
+                    const activePoly = !isEditMode ? trackPolys.find(p => p.start === i) : null;
+
+                    if (activePoly) {
+                        const W = activePoly.end - activePoly.start + 1;
+                        
+                        // 子マスON/OFF配列の初期化確認
+                        if (!activePoly.activeSteps || activePoly.activeSteps.length !== activePoly.count) {
+                            activePoly.activeSteps = Array(activePoly.count).fill(true);
+                        }
+
+                        // ポリリズム子マスのコンテナ (DAWデザイン)
+                        const polyContainer = document.createElement('div');
+                        polyContainer.className = "h-11 rounded-xl flex items-center p-1 bg-slate-900/95 border-2 border-indigo-500/60 shadow-[0_0_10px_rgba(99,102,241,0.15)] gap-1 relative overflow-hidden";
+                        
+                        // 正確な幅を計算： Wマス分 * 44px + (W-1) * 6px
+                        polyContainer.style.width = `calc(${W} * 2.75rem + (${W} - 1) * 0.375rem)`;
+                        polyContainer.style.minWidth = `calc(${W} * 2.75rem + (${W} - 1) * 0.375rem)`;
+
+                        // 子マスの個別配置
+                        for (let s = 0; s < activePoly.count; s++) {
+                            const isSubActive = activePoly.activeSteps[s];
+                            const subBtn = document.createElement('button');
+                            subBtn.className = `h-full flex-grow rounded-lg transition-all duration-150 flex flex-col items-center justify-center border text-[9px] font-mono font-bold select-none relative
+                                ${isSubActive 
+                                    ? getActiveSubStepClasses(track.color)
+                                    : 'bg-slate-950/60 hover:bg-slate-800 border-slate-800/80 hover:border-slate-700/60 text-slate-500'
+                                }`;
+                            
+                            // 連音番号を表示 (例: "1", "2", "3")
+                            subBtn.innerText = s + 1;
+                            
+                            // 小さな状態インジケータードット
+                            const subDot = document.createElement('span');
+                            subDot.className = `w-1.5 h-1.5 rounded-full mt-0.5 ${isSubActive ? 'bg-slate-950 scale-110' : 'bg-slate-800/40'}`;
+                            subBtn.appendChild(subDot);
+
+                            // 子マス個別のタップ処理
+                            const startStep = i;
+                            const subIndex = s;
+                            subBtn.onclick = (e) => {
+                                e.stopPropagation();
+                                window.togglePolySubStep(track.id, startStep, subIndex);
+                            };
+
+                            polyContainer.appendChild(subBtn);
+                        }
+
+                        // コーナーバッジ
+                        const badge = document.createElement('div');
+                        badge.className = "absolute right-1 top-0 text-[7px] text-indigo-400 font-bold scale-75 opacity-40 select-none pointer-events-none font-mono";
+                        badge.innerText = "POLY";
+                        polyContainer.appendChild(badge);
+
+                        stepsWrapper.appendChild(polyContainer);
+
+                        // レンダリング進行をポリリズムの範囲分進める
+                        i += W;
+                    } else {
+                        // 通常ステップ、またはエディットモード中のフラットなマス表示
+                        const isActive = sequencerData[track.id][i];
+                        
+                        // エディットモード中、既にそのステップにポリリズムが存在しているかどうか
+                        const isPartofExistingPoly = isEditMode && trackPolys.some(p => i >= p.start && i <= p.end);
+
+                        // 選択中のハイライト判定
+                        let isUnderSelection = false;
+                        if (isEditMode && selectedTrack === track.id) {
+                            if (selectionStart !== null && selectionEnd === null && selectionStart === i) {
+                                isUnderSelection = true;
+                            } else if (selectionStart !== null && selectionEnd !== null && i >= selectionStart && i <= selectionEnd) {
+                                isUnderSelection = true;
+                            }
+                        }
+
+                        const btn = document.createElement('button');
+                        btn.id = `step-${track.id}-${i}`;
+                        
+                        let baseClasses = "w-11 h-11 transition-all duration-150 relative flex items-center justify-center border-2 shadow-sm ";
+                        
+                        if (isUnderSelection) {
+                            baseClasses += "bg-indigo-500/20 border-indigo-400 rounded-xl scale-95 ring-2 ring-indigo-500/50";
+                        } else if (isActive) {
+                            baseClasses += getActiveStepClasses(track.color) + " rounded-xl";
+                        } else {
+                            baseClasses += "bg-slate-900/80 border-slate-800/80 hover:bg-slate-800 rounded-xl";
+                            if (isEditMode) {
+                                baseClasses += " hover:border-indigo-500/40 border-dashed";
+                            } else {
+                                baseClasses += " hover:border-slate-700/60";
+                            }
+                        }
+
+                        btn.className = baseClasses;
+                        
+                        const dot = document.createElement('span');
+                        dot.className = `w-2 h-2 rounded-full transition-all duration-150 ${isActive ? 'bg-slate-950 scale-110' : 'bg-slate-800'}`;
+                        btn.appendChild(dot);
+
+                        // 範囲選択時にポリリズムが設定されている箇所を光らせるヒント
+                        if (isPartofExistingPoly) {
+                            const polyIndicator = document.createElement('span');
+                            polyIndicator.className = "absolute top-0.5 right-0.5 w-1.5 h-1.5 rounded-full bg-indigo-400 animate-pulse";
+                            btn.appendChild(polyIndicator);
+                        }
+
+                        if (i === 0) {
+                            btn.classList.add('ring-1', 'ring-indigo-500/20');
+                        }
+
+                        const stepIndex = i;
+                        btn.onclick = () => handleGridClick(track.id, stepIndex);
+                        stepsWrapper.appendChild(btn);
+
+                        i++;
                     }
-
-                    btn.onclick = () => toggleStep(track.id, i);
-                    stepsWrapper.appendChild(btn);
                 }
 
                 row.appendChild(stepsWrapper);
@@ -620,23 +1085,32 @@
                 initAudio();
                 return;
             }
+
+            const trackPolys = polyrhythms[trackId] || [];
+            const hasPoly = trackPolys.some(p => stepIndex >= p.start && stepIndex <= p.end);
+            if (hasPoly) {
+                polyrhythms[trackId] = trackPolys.filter(p => !(stepIndex >= p.start && stepIndex <= p.end));
+                if (audioInitialized) setupTransportLoop();
+            }
+
             const currentState = sequencerData[trackId][stepIndex];
             sequencerData[trackId][stepIndex] = !currentState;
 
             const btn = document.getElementById(`step-${trackId}-${stepIndex}`);
-            const dot = btn.querySelector('span');
+            const dot = btn ? btn.querySelector('span') : null;
             const track = tracks.find(t => t.id === trackId);
 
             if (sequencerData[trackId][stepIndex]) {
-                btn.className = `w-11 h-11 rounded-xl transition-all duration-150 relative flex items-center justify-center border-2 shadow-sm ${getActiveStepClasses(track.color)}`;
-                if (stepIndex === 0) btn.classList.add('ring-1', 'ring-indigo-500/20');
-                dot.className = "w-2 h-2 rounded-full bg-slate-950 scale-110 transition-all duration-150";
+                if (btn) btn.className = `w-11 h-11 rounded-xl transition-all duration-150 relative flex items-center justify-center border-2 shadow-sm ${getActiveStepClasses(track.color)}`;
+                if (stepIndex === 0 && btn) btn.classList.add('ring-1', 'ring-indigo-500/20');
+                if (dot) dot.className = "w-2 h-2 rounded-full bg-slate-950 scale-110 transition-all duration-150";
                 playTrackSound(track.synthType, Tone.now(), stepIndex);
             } else {
-                btn.className = 'w-11 h-11 rounded-xl transition-all duration-150 relative flex items-center justify-center border-2 shadow-sm bg-slate-900/80 hover:bg-slate-800 border-slate-800/80 hover:border-slate-700/60';
-                if (stepIndex === 0) btn.classList.add('ring-1', 'ring-indigo-500/20');
-                dot.className = "w-2 h-2 rounded-full bg-slate-800 transition-all duration-150";
+                if (btn) btn.className = 'w-11 h-11 rounded-xl transition-all duration-150 relative flex items-center justify-center border-2 shadow-sm bg-slate-900/80 hover:bg-slate-800 border-slate-800/80 hover:border-slate-700/60';
+                if (stepIndex === 0 && btn) btn.classList.add('ring-1', 'ring-indigo-500/20');
+                if (dot) dot.className = "w-2 h-2 rounded-full bg-slate-800 transition-all duration-150";
             }
+            renderSequencer();
         }
 
         function highlightCurrentGridStep(stepIdx) {
@@ -682,12 +1156,10 @@
             updateBeatsState(nextBeats);
         }
 
-        // 共通の拍数更新ステート
         function updateBeatsState(nextBeats) {
             if (nextBeats !== numBeats) {
                 numBeats = nextBeats;
                 
-                // 表示およびドロップダウンの選択位置を同期
                 const beatsSel = document.getElementById('beats-select');
                 if (beatsSel) beatsSel.value = numBeats;
                 const totalStepDisp = document.getElementById('total-step-display');
@@ -703,11 +1175,16 @@
                     } else if (sequencerData[track.id].length > numBeats) {
                         sequencerData[track.id] = sequencerData[track.id].slice(0, numBeats);
                     }
+
+                    if (polyrhythms[track.id]) {
+                        polyrhythms[track.id] = polyrhythms[track.id].filter(p => p.start < numBeats && p.end < numBeats);
+                    }
                 });
 
                 if (audioInitialized) {
                     setupTransportLoop();
                 }
+                clearSelection();
                 renderSequencer();
             }
         }
@@ -718,6 +1195,7 @@
             renderSequencer();
         }
 
+        // テンポ値更新
         function updateTempo(val) {
             let newBpm = parseInt(val);
             if (isNaN(newBpm)) newBpm = 120;
@@ -747,6 +1225,7 @@
             }
         }
 
+        // 再生・一時停止のメイン関数（徹底的な不整合防止策）
         function togglePlay() {
             if (!audioInitialized) {
                 initAudio();
@@ -759,8 +1238,10 @@
             const miniPlayIcon = document.getElementById('mini-play-icon');
 
             if (isPlaying) {
-                Tone.Transport.stop();
+                // 1. 再生停止
                 isPlaying = false;
+                Tone.Transport.stop();
+                Tone.Transport.position = 0; // タイムライン位置をゼロクリア
                 
                 // メインボタンを停止状態に
                 playIcon.className = "fa-solid fa-play text-2xl ml-1";
@@ -774,9 +1255,15 @@
                 highlightCurrentGridStep(-1);
                 document.getElementById('current-step-display').innerText = "1";
             } else {
+                // 2. 再生開始
                 currentStep = 0;
-                Tone.Transport.start("+0.05");
+                
+                // スケジューラーとUIカウンタを厳密にゼロ点でアライメント調整
+                Tone.Transport.position = 0;
+                setupTransportLoop(); // 最新 of 最新のグリッド状態・ポリリズム構造で予約を構築
+                
                 isPlaying = true;
+                Tone.Transport.start("+0.02"); // 20ミリ秒だけバッファを持たせ、ジッターなしに同期
                 
                 // メインボタンを再生中状態に
                 playIcon.className = "fa-solid fa-pause text-2xl";
@@ -784,7 +1271,7 @@
                 
                 // ミニボタンを再生中状態に
                 miniPlayIcon.className = "fa-solid fa-pause text-xs";
-                miniPlayBtn.className = "w-8 h-8 bg-amber-500 hover:bg-amber-400 active:scale-90 text-slate-950 font-bold rounded-lg flex items-center justify-center transition-all shadow-md shadow-amber-500/10";
+                miniPlayBtn.className = "w-8 h-8 bg-amber-500 hover:bg-amber-400 active:scale-90 text-slate-950 font-bold rounded-lg flex items-center justify-center transition-all shadow-md shadow-emerald-500/10";
             }
         }
 
@@ -820,7 +1307,10 @@
         function clearAllSteps() {
             tracks.forEach(track => {
                 sequencerData[track.id] = Array(numBeats).fill(false);
+                polyrhythms[track.id] = [];
             });
+            if (audioInitialized) setupTransportLoop();
+            clearSelection();
             renderSequencer();
             showToast("すべてのステップをクリアしました。", "fa-trash-can", "text-rose-400");
         }
@@ -843,7 +1333,12 @@
                 'hat':       [true,  true,  true,  true,  true,  true,  true]
             };
 
+            tracks.forEach(track => {
+                polyrhythms[track.id] = [];
+            });
+
             if (audioInitialized) setupTransportLoop();
+            clearSelection();
             renderSequencer();
             showToast("デフォルトの7/8パターンにリセットしました。", "fa-arrow-rotate-left", "text-indigo-400");
         }
@@ -862,6 +1357,7 @@
 
             tracks.forEach(track => {
                 sequencerData[track.id] = Array(numBeats).fill(false);
+                polyrhythms[track.id] = []; 
             });
 
             if (beats === 5) {
@@ -898,12 +1394,13 @@
             }
 
             if (audioInitialized) setupTransportLoop();
+            clearSelection();
             renderSequencer();
             showToast(`${beats}/${unit}拍子プリセットをロードしました。`, "fa-sliders", "text-indigo-400");
         }
 
-        // --- Firebase / LocalStorage ハイブリッド保存ロジック ---
-        const LOCAL_STORAGE_KEY = 'poly_metronome_patterns';
+        // --- Firebase / LocalStorage 保存ロジック ---
+        const LOCAL_STORAGE_KEY = 'poly_metronome_patterns_v2';
 
         const initAuth = async () => {
             if (!useFirebase || !auth) {
@@ -1009,6 +1506,7 @@
                 numBeats: numBeats,
                 beatUnit: beatUnit,
                 sequencerData: JSON.parse(JSON.stringify(sequencerData)), 
+                polyrhythms: JSON.parse(JSON.stringify(polyrhythms)), 
                 createdAt: { seconds: Math.floor(Date.now() / 1000) } 
             };
 
@@ -1103,6 +1601,11 @@
             numBeats = pattern.numBeats;
             beatUnit = pattern.beatUnit;
             sequencerData = JSON.parse(JSON.stringify(pattern.sequencerData));
+            polyrhythms = JSON.parse(JSON.stringify(pattern.polyrhythms || {})); 
+
+            tracks.forEach(t => {
+                if (!polyrhythms[t.id]) polyrhythms[t.id] = [];
+            });
 
             // UI反映
             document.getElementById('tempo-input').value = bpm;
@@ -1119,6 +1622,7 @@
             if (audioInitialized) {
                 setupTransportLoop();
             }
+            clearSelection();
             renderSequencer();
             showToast(`パターン「${pattern.name}」をロードしました！`, "fa-folder-open", "text-indigo-400");
         };
@@ -1166,6 +1670,11 @@
         window.applyPreset = applyPreset;
         window.previewInstrument = playTrackSound;
         window.saveCurrentPattern = saveCurrentPattern;
+        
+        // エディットモード追加バインド
+        window.toggleEditMode = toggleEditMode;
+        window.clearSelection = clearSelection;
+        window.togglePolySubStep = togglePolySubStep;
 
         // --- トースト関数 ---
         function showToast(message, iconClass = "fa-circle-check", colorClass = "text-emerald-400") {
