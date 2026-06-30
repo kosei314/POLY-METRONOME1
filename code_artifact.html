@@ -1,0 +1,1085 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>変拍子マルチトラック・メトロノーム</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Tone.js (Web Audio API library for precision timing) -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/tone/14.8.49/Tone.js"></script>
+    <!-- FontAwesome for Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        /* スムーズなスクロールバーのカスタマイズ */
+        .custom-scrollbar::-webkit-scrollbar {
+            height: 8px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-track {
+            background: #1e293b;
+            border-radius: 9999px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-thumb {
+            background: #475569;
+            border-radius: 9999px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+            background: #64748b;
+        }
+    </style>
+</head>
+<body class="bg-slate-950 text-slate-100 min-h-screen flex flex-col justify-between font-sans">
+
+    <!-- ヘッダー -->
+    <header class="border-b border-slate-800 bg-slate-900/50 backdrop-blur-md sticky top-0 z-10 px-4 py-4">
+        <div class="max-w-6xl mx-auto flex flex-col sm:flex-row justify-between items-center gap-4">
+            <div class="flex items-center gap-3">
+                <div class="w-10 h-10 bg-indigo-600 rounded-xl flex items-center justify-center shadow-lg shadow-indigo-500/30">
+                    <i class="fa-solid fa-square-poll-vertical text-xl text-white"></i>
+                </div>
+                <div>
+                    <h1 class="text-xl font-bold tracking-wider bg-gradient-to-r from-indigo-400 to-purple-400 bg-clip-text text-transparent">POLY-METRONOME</h1>
+                    <p class="text-xs text-slate-400">変拍子対応マルチトラック・リズムマシン</p>
+                </div>
+            </div>
+            <!-- クイックプリセット -->
+            <div class="flex items-center gap-2 bg-slate-800/80 p-1.5 rounded-xl border border-slate-700/50 text-xs">
+                <span class="px-2 text-slate-400 font-medium">変拍子プリセット:</span>
+                <button onclick="applyPreset(5, 4)" class="px-2.5 py-1 rounded-lg bg-slate-700 hover:bg-slate-600 active:bg-indigo-600 transition-all font-semibold">5/4 拍子</button>
+                <button onclick="applyPreset(7, 8)" class="px-2.5 py-1 rounded-lg bg-slate-700 hover:bg-slate-600 active:bg-indigo-600 transition-all font-semibold">7/8 拍子</button>
+                <button onclick="applyPreset(11, 8)" class="px-2.5 py-1 rounded-lg bg-slate-700 hover:bg-slate-600 active:bg-indigo-600 transition-all font-semibold">11/8 拍子</button>
+            </div>
+        </div>
+    </header>
+
+    <!-- メインコンテンツ -->
+    <main class="max-w-6xl w-full mx-auto p-4 flex-grow flex flex-col justify-center gap-6">
+
+        <!-- オーディオ開始のためのオーバーレイ（ブラウザ制限対策） -->
+        <div id="start-overlay" class="bg-slate-900/90 border border-indigo-500/30 rounded-2xl p-6 text-center shadow-2xl max-w-lg mx-auto my-8 flex flex-col items-center gap-4">
+            <div class="w-16 h-16 bg-indigo-500/10 rounded-full flex items-center justify-center text-indigo-400 mb-2">
+                <i class="fa-solid fa-volume-high text-3xl animate-pulse"></i>
+            </div>
+            <h3 class="text-lg font-bold">オーディオエンジンの起動</h3>
+            <p class="text-sm text-slate-400 max-w-sm">
+                ブラウザのセキュリティ制限により、音を鳴らすにはユーザーの操作が必要です。下のボタンを押して高精度オーディオ（Tone.js）を有効化してください。
+            </p>
+            <button onclick="initAudio()" class="mt-2 px-6 py-3 bg-gradient-to-r from-indigo-500 to-purple-600 hover:from-indigo-600 hover:to-purple-700 active:scale-95 transition-all text-white font-bold rounded-xl shadow-lg shadow-indigo-500/25 flex items-center gap-2">
+                <i class="fa-solid fa-bolt"></i> 起動してスタート
+            </button>
+        </div>
+
+        <!-- コントロールパネル（オーディオ初期化後に有効化） -->
+        <div id="app-container" class="opacity-40 pointer-events-none transition-opacity duration-300 flex flex-col gap-6">
+            
+            <!-- 上部セクション: メインコントロール -->
+            <div class="grid grid-cols-1 md:grid-cols-12 gap-4">
+                
+                <!-- 再生・テンポ操作 (5 cols) -->
+                <div class="bg-slate-900/60 border border-slate-800 rounded-2xl p-5 md:col-span-5 flex flex-col justify-between gap-4">
+                    <div class="flex items-center justify-between">
+                        <span class="text-sm font-semibold text-slate-400">再生 & テンポ</span>
+                        <div class="flex items-center gap-1.5 bg-slate-950 px-2.5 py-1 rounded-full border border-slate-800">
+                            <span class="w-2 h-2 rounded-full bg-emerald-500 animate-ping"></span>
+                            <span class="text-[10px] text-emerald-400 uppercase font-mono tracking-wider">Audio Engine Active</span>
+                        </div>
+                    </div>
+                    
+                    <div class="flex items-center gap-4">
+                        <!-- 巨大な再生ボタン -->
+                        <button id="play-btn" onclick="togglePlay()" class="w-16 h-16 shrink-0 bg-emerald-500 hover:bg-emerald-400 active:scale-95 text-slate-950 font-bold rounded-2xl shadow-lg shadow-emerald-500/25 flex items-center justify-center transition-all">
+                            <i id="play-icon" class="fa-solid fa-play text-2xl ml-1"></i>
+                        </button>
+                        <!-- テンポ数値表示・Tap -->
+                        <div class="flex-grow">
+                            <div class="flex items-baseline justify-between mb-1">
+                                <span class="text-xs text-slate-500 font-semibold">TEMPO</span>
+                                <div class="flex items-baseline gap-1">
+                                    <input type="number" id="tempo-input" value="120" min="40" max="300" onchange="updateTempo(this.value)" class="bg-transparent text-3xl font-extrabold text-slate-100 w-20 text-right focus:outline-none focus:border-b focus:border-indigo-500 font-mono">
+                                    <span class="text-sm text-slate-400 font-bold">BPM</span>
+                                </div>
+                            </div>
+                            <button onclick="handleTap()" class="w-full py-1.5 bg-slate-800 hover:bg-slate-700 active:bg-slate-600 transition-all text-[11px] font-bold text-slate-300 rounded-lg border border-slate-700/50 uppercase tracking-widest">
+                                <i class="fa-solid fa-hand-pointer mr-1"></i> Tap Tempo
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- スライダー -->
+                    <div class="flex items-center gap-3">
+                        <span class="text-xs font-semibold text-slate-500 w-8">40</span>
+                        <input type="range" id="tempo-slider" min="40" max="300" value="120" oninput="updateTempo(this.value)" class="flex-grow accent-indigo-500 h-1.5 bg-slate-950 rounded-lg cursor-pointer">
+                        <span class="text-xs font-semibold text-slate-500 w-8 text-right">300</span>
+                    </div>
+                </div>
+
+                <!-- 拍子・細分化設定 (4 cols) -->
+                <div class="bg-slate-900/60 border border-slate-800 rounded-2xl p-5 md:col-span-4 flex flex-col justify-between gap-4">
+                    <span class="text-sm font-semibold text-slate-400">拍子設定</span>
+                    
+                    <div class="grid grid-cols-2 gap-4">
+                        <!-- 拍数設定 (3〜50 ドロップダウン対応) -->
+                        <div>
+                            <label class="block text-xs text-slate-500 font-bold mb-1.5 uppercase tracking-wider">拍数 (変拍子)</label>
+                            <div class="flex items-center justify-between bg-slate-950 rounded-xl p-1 border border-slate-800">
+                                <button onclick="adjustBeats(-1)" class="w-8 h-8 rounded-lg bg-slate-900 hover:bg-slate-800 active:scale-90 text-slate-300 transition-all font-bold text-lg">-</button>
+                                
+                                <div class="relative flex items-center justify-center">
+                                    <!-- 3〜50 選択用メニュー -->
+                                    <select id="beats-select" onchange="selectBeats(this.value)" class="bg-slate-950 text-indigo-400 font-bold text-xl font-mono focus:outline-none cursor-pointer py-1 px-2 rounded-lg hover:bg-slate-800 transition-colors border-none appearance-none text-center min-w-[48px]">
+                                        <!-- オプションは動的に生成されます (3-50) -->
+                                    </select>
+                                    <div class="absolute right-0 top-1/2 -translate-y-1/2 pointer-events-none text-[8px] text-indigo-400/50">
+                                        <!-- 三角アイコンを配置 -->
+                                    </div>
+                                </div>
+
+                                <button onclick="adjustBeats(1)" class="w-8 h-8 rounded-lg bg-slate-900 hover:bg-slate-800 active:scale-90 text-slate-300 transition-all font-bold text-lg">+</button>
+                            </div>
+                        </div>
+                        
+                        <!-- 音符設定 -->
+                        <div>
+                            <label class="block text-xs text-slate-500 font-bold mb-1.5 uppercase tracking-wider">基準音符</label>
+                            <select id="beat-unit-select" onchange="updateBeatUnit(this.value)" class="w-full h-10 bg-slate-950 hover:bg-slate-900 border border-slate-800 rounded-xl px-3 font-semibold text-sm text-slate-300 focus:outline-none focus:border-indigo-500 transition-all">
+                                <option value="4">4分音符</option>
+                                <option value="8" selected>8分音符</option>
+                                <option value="16">16分音符</option>
+                                <option value="3">3連符相当</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <!-- 表示情報 -->
+                    <div class="bg-slate-950/50 rounded-xl p-2.5 border border-slate-800/80 text-xs text-slate-400 flex justify-between items-center">
+                        <span class="flex items-center gap-1.5">
+                            <i class="fa-solid fa-circle-info text-indigo-400"></i>
+                            現在の設定:
+                        </span>
+                        <span id="signature-summary" class="font-bold text-indigo-300 font-mono text-sm">7/8 拍子</span>
+                    </div>
+                </div>
+
+                <!-- 各種設定 & グローバルボリューム (3 cols) -->
+                <div class="bg-slate-900/60 border border-slate-800 rounded-2xl p-5 md:col-span-3 flex flex-col justify-between gap-4">
+                    <span class="text-sm font-semibold text-slate-400">システム設定</span>
+                    
+                    <!-- マスターボリューム -->
+                    <div>
+                        <div class="flex justify-between items-center mb-1.5">
+                            <span class="text-xs text-slate-500 font-bold uppercase tracking-wider">マスター音量</span>
+                            <span id="volume-display" class="text-xs font-mono text-slate-300 font-bold">85%</span>
+                        </div>
+                        <div class="flex items-center gap-2">
+                            <i class="fa-solid fa-volume-low text-slate-500 text-sm"></i>
+                            <input type="range" id="volume-slider" min="0" max="100" value="85" oninput="updateVolume(this.value)" class="flex-grow accent-indigo-500 h-1.5 bg-slate-950 rounded-lg cursor-pointer">
+                            <i class="fa-solid fa-volume-high text-slate-500 text-sm"></i>
+                        </div>
+                    </div>
+
+                    <!-- 全クリア & リセット -->
+                    <div class="grid grid-cols-2 gap-2">
+                        <button onclick="clearAllSteps()" class="py-2 bg-rose-500/10 hover:bg-rose-500/20 active:scale-95 text-rose-400 text-xs font-bold rounded-lg border border-rose-500/20 transition-all flex items-center justify-center gap-1">
+                            <i class="fa-solid fa-trash-can text-[10px]"></i> 全クリア
+                        </button>
+                        <button onclick="resetToDefaultPattern()" class="py-2 bg-indigo-500/10 hover:bg-indigo-500/20 active:scale-95 text-indigo-400 text-xs font-bold rounded-lg border border-indigo-500/20 transition-all flex items-center justify-center gap-1">
+                            <i class="fa-solid fa-arrow-rotate-left text-[10px]"></i> 初期パターン
+                        </button>
+                    </div>
+                </div>
+
+            </div>
+
+            <!-- リズム保存・クラウド同期フォーム -->
+            <div class="bg-slate-900/60 border border-slate-800 rounded-2xl p-5 flex flex-col sm:flex-row items-center justify-between gap-4">
+                <div class="flex items-center gap-3 w-full sm:w-auto">
+                    <div class="w-10 h-10 bg-indigo-600/20 border border-indigo-500/30 rounded-xl flex items-center justify-center shrink-0 text-indigo-400">
+                        <i class="fa-solid fa-floppy-disk text-lg"></i>
+                    </div>
+                    <div>
+                        <h3 class="text-sm font-bold text-slate-200">ビートをクラウド保存</h3>
+                        <p class="text-xs text-slate-500">作成した変拍子パターンに名前を付けていつでも読み出せます</p>
+                    </div>
+                </div>
+                <div class="flex w-full sm:w-auto max-w-md gap-2">
+                    <input type="text" id="pattern-name-input" placeholder="リズム名 (例: 変則5拍子ドラム)" class="flex-grow bg-slate-950 border border-slate-800 hover:border-slate-700 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 focus:outline-none rounded-xl px-4 py-2 text-sm text-slate-200 transition-all">
+                    <button onclick="saveCurrentPattern()" class="px-5 py-2 bg-indigo-600 hover:bg-indigo-500 active:scale-95 transition-all text-white font-bold text-sm rounded-xl flex items-center gap-2 shrink-0 shadow-lg shadow-indigo-600/10">
+                        <i class="fa-solid fa-cloud-arrow-up"></i> 保存
+                    </button>
+                </div>
+            </div>
+
+            <!-- 保存されたカスタムパターン一覧 (データが存在する場合のみ表示) -->
+            <div id="saved-patterns-container" class="bg-slate-900/40 border border-slate-800/40 rounded-2xl p-5 hidden transition-all">
+                <h3 class="text-sm font-bold text-slate-400 mb-3 flex items-center gap-2">
+                    <i class="fa-solid fa-folder-open text-indigo-400"></i>
+                    保存されたカスタムリズム
+                </h3>
+                <div id="saved-patterns-list" class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
+                    <!-- 動的ロード用 -->
+                </div>
+            </div>
+
+            <!-- 下部セクション: リズムマシン・グリッド -->
+            <div class="bg-slate-900/60 border border-slate-800 rounded-2xl p-6 shadow-xl flex flex-col gap-4">
+                
+                <!-- ヘッダー部 -->
+                <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-800/80">
+                    <div>
+                        <h2 class="text-base font-bold text-slate-200">ステップシーケンサー</h2>
+                        <p class="text-xs text-slate-500 mt-0.5">縦：音色トラック / 横：時間ステップ（クリックして発音予約。横スクロール可能）</p>
+                    </div>
+                    <!-- ビジュアルインジケーター（再生中の進行状況） -->
+                    <div class="flex items-center gap-1 bg-slate-950 px-3 py-1.5 rounded-xl border border-slate-800 max-w-xs self-start sm:self-auto">
+                        <span class="text-[10px] text-slate-500 font-bold uppercase tracking-wider mr-1">Step:</span>
+                        <span id="current-step-display" class="font-mono text-sm font-bold text-indigo-400 min-w-[20px] text-center">1</span>
+                        <span class="text-slate-600 font-mono">/</span>
+                        <span id="total-step-display" class="font-mono text-sm font-bold text-slate-400 min-w-[20px] text-center">7</span>
+                    </div>
+                </div>
+
+                <!-- グリッドシーケンサー（横スクロールコンテナ） -->
+                <div class="overflow-x-auto custom-scrollbar pb-3">
+                    <div id="sequencer-grid" class="min-w-max flex flex-col gap-3.5 select-none">
+                        <!-- ここにJavaScriptで動的にステップグリッドが構築されます -->
+                    </div>
+                </div>
+
+                <!-- 操作補助のヒント -->
+                <div class="flex flex-col sm:flex-row justify-between items-center gap-2 text-[11px] text-slate-500 border-t border-slate-800/50 pt-3">
+                    <span class="flex items-center gap-1.5">
+                        <i class="fa-solid fa-circle-question text-slate-600"></i>
+                        マス目の数字は拍の位置（1, 2, 3...）を示し、中間の点は拍と拍の間のタイミングを示します。
+                    </span>
+                    <span class="font-semibold text-slate-400">
+                        <i class="fa-solid fa-arrows-left-right text-xs"></i> 拍数が多い場合は左右にスワイプ・スクロール可能
+                    </span>
+                </div>
+
+            </div>
+
+        </div>
+
+    </main>
+
+    <!-- フッター -->
+    <footer class="border-t border-slate-900 bg-slate-950/80 py-4 text-center text-xs text-slate-600">
+        <div class="max-w-6xl mx-auto px-4 flex flex-col sm:flex-row justify-between items-center gap-2">
+            <p>© 2026 POLY-METRONOME. Made with Tone.js Precision Web Audio API.</p>
+            <p class="flex items-center gap-3">
+                <span><i class="fa-solid fa-sliders text-indigo-500/70 mr-1"></i> 極小レイテンシー設計</span>
+                <span><i class="fa-solid fa-wave-square text-purple-500/70 mr-1"></i> リアルタイムシンセシス</span>
+            </p>
+        </div>
+    </footer>
+
+    <!-- 通知・メッセージコンテナ -->
+    <div id="toast" class="fixed bottom-6 right-6 bg-slate-900 border border-slate-700 text-slate-200 px-4 py-3 rounded-xl shadow-2xl transition-all transform translate-y-20 opacity-0 pointer-events-none z-50 flex items-center gap-2">
+        <i class="fa-solid fa-circle-check text-emerald-400" id="toast-icon"></i>
+        <span id="toast-msg" class="text-xs font-semibold">設定を保存しました。</span>
+    </div>
+
+    <!-- Firebase Scripts and Application Logic -->
+    <script type="module">
+        // --- Firebase v11 Imports (MANDATORY RULES Compliance) ---
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInWithCustomToken, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, doc, setDoc, getDoc, collection, query, onSnapshot, addDoc, updateDoc, deleteDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        // --- Firebase 環境変数の取得 ---
+        const firebaseConfig = JSON.parse(__firebase_config);
+        const app = initializeApp(firebaseConfig);
+        const auth = getAuth(app);
+        const db = getFirestore(app);
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+
+        // --- 状態管理 ---
+        let bpm = 120;
+        let numBeats = 7;      // 拍数 (分子)
+        let beatUnit = 8;      // 基準音符 (分母)
+        let isPlaying = false;
+        let currentStep = 0;   // 現在再生中のステップ (0-indexed)
+        let audioInitialized = false;
+        let currentUser = null; // Firebase Auth User
+
+        // タップテンポ用変数
+        let tapTimes = [];
+        
+        // トラック（楽器）の定義
+        const tracks = [
+            { id: 'beep-high', name: 'High Beep', color: 'indigo', icon: 'fa-bell', synthType: 'synth-accent' },
+            { id: 'beep-low',  name: 'Low Beep',  color: 'violet', icon: 'fa-circle-dot', synthType: 'synth-normal' },
+            { id: 'kick',      name: 'Kick',      color: 'emerald', icon: 'fa-drum', synthType: 'kick' },
+            { id: 'snare',     name: 'Snare',     color: 'sky', icon: 'fa-bullseye', synthType: 'snare' },
+            { id: 'hat',       name: 'Hi-Hat',    color: 'amber', icon: 'fa-wand-magic-sparkles', synthType: 'hat' }
+        ];
+
+        // シーケンサーグリッドデータ
+        let sequencerData = {
+            'beep-high': [true,  false, false, false, false, false, false],
+            'beep-low':  [false, false, true,  false, false, true,  false],
+            'kick':      [true,  false, false, true,  false, true,  false],
+            'snare':     [false, false, true,  false, true,  false, true],
+            'hat':       [true,  true,  true,  true,  true,  true,  true]
+        };
+
+        // --- 音源ノード ---
+        let mainVolumeNode = null;
+        let synthAccent = null;
+        let synthNormal = null;
+        let kickSynth = null;
+        let snareSynth = null;
+        let hatSynth = null;
+
+        // --- 3から50のドロップダウンオプションの生成 ---
+        function initBeatsDropdown() {
+            const selectEl = document.getElementById('beats-select');
+            selectEl.innerHTML = '';
+            for (let i = 3; i <= 50; i++) {
+                const opt = document.createElement('option');
+                opt.value = i;
+                opt.innerText = i;
+                if (i === numBeats) {
+                    opt.selected = true;
+                }
+                selectEl.appendChild(opt);
+            }
+        }
+
+        // --- オーディオエンジンの初期化 ---
+        async function initAudio() {
+            if (audioInitialized) return;
+
+            // Tone.jsのコンテキスト開始
+            await Tone.start();
+
+            // マスターボリュームノードの作成
+            mainVolumeNode = new Tone.Volume(-6).toDestination();
+            updateVolume(document.getElementById('volume-slider').value);
+
+            // 1. ビープ音 (高・アクセント用)
+            synthAccent = new Tone.Synth({
+                oscillator: { type: "triangle" },
+                envelope: { attack: 0.001, decay: 0.08, sustain: 0, release: 0.08 }
+            }).connect(mainVolumeNode);
+
+            // 2. ビープ音 (低)
+            synthNormal = new Tone.Synth({
+                oscillator: { type: "sine" },
+                envelope: { attack: 0.002, decay: 0.06, sustain: 0, release: 0.06 }
+            }).connect(mainVolumeNode);
+
+            // 3. キック
+            kickSynth = new Tone.MembraneSynth({
+                envelope: { attack: 0.001, decay: 0.18, sustain: 0, release: 0.18 }
+            }).connect(mainVolumeNode);
+
+            // 4. スネアドラム（ノイズ＋トーン）
+            const snareNoise = new Tone.NoiseSynth({
+                noise: { type: "pink" },
+                envelope: { attack: 0.001, decay: 0.1, sustain: 0 }
+            }).connect(mainVolumeNode);
+            
+            const snareOsc = new Tone.Synth({
+                oscillator: { type: "triangle" },
+                envelope: { attack: 0.001, decay: 0.08, sustain: 0 }
+            }).connect(mainVolumeNode);
+
+            snareSynth = {
+                triggerAttackRelease: (time) => {
+                    snareNoise.triggerAttackRelease("16n", time);
+                    snareOsc.triggerAttackRelease("E3", "16n", time);
+                }
+            };
+
+            // 5. ハイハット（軽量ホワイトノイズ＋ハイパスフィルター）
+            const hatFilter = new Tone.Filter({
+                type: "highpass",
+                frequency: 8000
+            }).connect(mainVolumeNode);
+
+            hatSynth = new Tone.NoiseSynth({
+                noise: { type: "white" },
+                envelope: { attack: 0.001, decay: 0.03, sustain: 0, release: 0.03 }
+            }).connect(hatFilter);
+
+            // シーケンサーループの設定
+            setupTransportLoop();
+
+            audioInitialized = true;
+            
+            // UIのロックを解除
+            const overlay = document.getElementById('start-overlay');
+            if (overlay) overlay.classList.add('hidden');
+            const container = document.getElementById('app-container');
+            container.classList.remove('opacity-40', 'pointer-events-none');
+
+            showToast("オーディオエンジンを起動しました！", "fa-circle-check", "text-emerald-400");
+        }
+
+        // --- スケジューラー＆シーケンサーループの構築 ---
+        function setupTransportLoop() {
+            Tone.Transport.cancel();
+
+            let interval = "4n";
+            if (beatUnit === 8) interval = "8n";
+            else if (beatUnit === 16) interval = "16n";
+            else if (beatUnit === 3) interval = "8t";
+
+            Tone.Transport.scheduleRepeat((time) => {
+                tracks.forEach(track => {
+                    const stepEnabled = sequencerData[track.id]?.[currentStep];
+                    if (stepEnabled) {
+                        playTrackSound(track.synthType, time, currentStep);
+                    }
+                });
+
+                const activeStep = currentStep;
+                Tone.Draw.schedule(() => {
+                    highlightCurrentGridStep(activeStep);
+                }, time);
+
+                currentStep = (currentStep + 1) % numBeats;
+            }, interval);
+
+            Tone.Transport.bpm.value = bpm;
+        }
+
+        // --- 音源再生処理 ---
+        function playTrackSound(synthType, time, stepIndex) {
+            try {
+                switch (synthType) {
+                    case 'synth-accent':
+                        synthAccent.triggerAttackRelease("A5", "32n", time);
+                        break;
+                    case 'synth-normal':
+                        synthNormal.triggerAttackRelease("E5", "32n", time);
+                        break;
+                    case 'kick':
+                        kickSynth.triggerAttackRelease("C1", "16n", time);
+                        break;
+                    case 'snare':
+                        snareSynth.triggerAttackRelease(time);
+                        break;
+                    case 'hat':
+                        const velocity = (stepIndex % 4 === 0) ? 0.9 : 0.5;
+                        hatSynth.triggerAttackRelease("32n", time, velocity);
+                        break;
+                }
+            } catch (err) {
+                console.error("Sound trigger error:", err);
+            }
+        }
+
+        // --- UI構築: シーケンサーグリッド ---
+        function renderSequencer() {
+            const grid = document.getElementById('sequencer-grid');
+            grid.innerHTML = ''; 
+
+            const headerRow = document.createElement('div');
+            headerRow.className = "flex items-center gap-2 mb-1";
+            
+            const labelSpacer = document.createElement('div');
+            labelSpacer.className = "w-28 text-right pr-4 shrink-0";
+            headerRow.appendChild(labelSpacer);
+
+            const stepsContainer = document.createElement('div');
+            stepsContainer.className = "flex items-center gap-1.5";
+
+            for (let i = 0; i < numBeats; i++) {
+                const stepNum = document.createElement('div');
+                stepNum.className = "w-11 text-center font-mono font-bold text-xs select-none";
+                
+                const isFirstBeat = (i === 0);
+                if (beatUnit === 8) {
+                    if (i % 2 === 0) {
+                        stepNum.innerText = Math.floor(i / 2) + 1;
+                        stepNum.className += isFirstBeat ? " text-indigo-400 text-sm" : " text-slate-300";
+                    } else {
+                        stepNum.innerText = "•";
+                        stepNum.className += " text-slate-600";
+                    }
+                } else if (beatUnit === 16) {
+                    if (i % 4 === 0) {
+                        stepNum.innerText = Math.floor(i / 4) + 1;
+                        stepNum.className += isFirstBeat ? " text-indigo-400 text-sm" : " text-slate-300";
+                    } else {
+                        stepNum.innerText = "•";
+                        stepNum.className += " text-slate-700";
+                    }
+                } else {
+                    stepNum.innerText = i + 1;
+                    stepNum.className += isFirstBeat ? " text-indigo-400 text-sm" : " text-slate-300";
+                }
+                
+                stepsContainer.appendChild(stepNum);
+            }
+            headerRow.appendChild(stepsContainer);
+            grid.appendChild(headerRow);
+
+            tracks.forEach(track => {
+                const row = document.createElement('div');
+                row.className = "flex items-center gap-2 group";
+
+                const label = document.createElement('div');
+                label.className = "w-28 flex items-center justify-between pr-4 shrink-0 text-slate-300 font-bold text-xs select-none";
+                label.innerHTML = `
+                    <span class="flex items-center gap-2">
+                        <span class="w-6 h-6 rounded-lg bg-slate-800 flex items-center justify-center text-[10px] text-slate-400 group-hover:text-${track.color}-400 group-hover:bg-${track.color}-500/10 transition-colors">
+                            <i class="fa-solid ${track.icon}"></i>
+                        </span>
+                        <span>${track.name}</span>
+                    </span>
+                    <button onclick="window.previewInstrument('${track.synthType}')" class="text-[10px] text-slate-600 hover:text-slate-400 active:scale-90 transition-all px-1" title="試聴">
+                        <i class="fa-solid fa-play"></i>
+                    </button>
+                `;
+                row.appendChild(label);
+
+                const stepsWrapper = document.createElement('div');
+                stepsWrapper.className = "flex items-center gap-1.5";
+
+                if (!sequencerData[track.id]) {
+                    sequencerData[track.id] = Array(numBeats).fill(false);
+                } else if (sequencerData[track.id].length < numBeats) {
+                    while (sequencerData[track.id].length < numBeats) {
+                        sequencerData[track.id].push(false);
+                    }
+                } else if (sequencerData[track.id].length > numBeats) {
+                    sequencerData[track.id] = sequencerData[track.id].slice(0, numBeats);
+                }
+
+                for (let i = 0; i < numBeats; i++) {
+                    const isActive = sequencerData[track.id][i];
+                    
+                    const btn = document.createElement('button');
+                    btn.id = `step-${track.id}-${i}`;
+                    btn.className = `w-11 h-11 rounded-xl transition-all duration-150 relative flex items-center justify-center border-2 shadow-sm
+                        ${isActive 
+                            ? getActiveStepClasses(track.color) 
+                            : 'bg-slate-900/80 hover:bg-slate-800 border-slate-800/80 hover:border-slate-700/60'
+                        }`;
+                    
+                    const dot = document.createElement('span');
+                    dot.className = `w-2 h-2 rounded-full transition-all duration-150 ${isActive ? 'bg-slate-950 scale-110' : 'bg-slate-800'}`;
+                    btn.appendChild(dot);
+
+                    if (i === 0) {
+                        btn.classList.add('ring-1', 'ring-indigo-500/20');
+                    }
+
+                    btn.onclick = () => toggleStep(track.id, i);
+                    stepsWrapper.appendChild(btn);
+                }
+
+                row.appendChild(stepsWrapper);
+                grid.appendChild(row);
+            });
+
+            updateSignatureSummary();
+        }
+
+        function getActiveStepClasses(color) {
+            switch (color) {
+                case 'indigo': return 'bg-indigo-500 hover:bg-indigo-400 border-indigo-400 shadow-indigo-500/20';
+                case 'violet': return 'bg-violet-500 hover:bg-violet-400 border-violet-400 shadow-violet-500/20';
+                case 'emerald': return 'bg-emerald-500 hover:bg-emerald-400 border-emerald-400 shadow-emerald-500/20';
+                case 'sky': return 'bg-sky-500 hover:bg-sky-400 border-sky-400 shadow-sky-500/20';
+                case 'amber': return 'bg-amber-500 hover:bg-amber-400 border-amber-400 shadow-amber-500/20';
+                default: return 'bg-slate-300 hover:bg-slate-200 border-slate-100';
+            }
+        }
+
+        function toggleStep(trackId, stepIndex) {
+            if (!audioInitialized) {
+                initAudio();
+                return;
+            }
+            const currentState = sequencerData[trackId][stepIndex];
+            sequencerData[trackId][stepIndex] = !currentState;
+
+            const btn = document.getElementById(`step-${trackId}-${stepIndex}`);
+            const dot = btn.querySelector('span');
+            const track = tracks.find(t => t.id === trackId);
+
+            if (sequencerData[trackId][stepIndex]) {
+                btn.className = `w-11 h-11 rounded-xl transition-all duration-150 relative flex items-center justify-center border-2 shadow-sm ${getActiveStepClasses(track.color)}`;
+                if (stepIndex === 0) btn.classList.add('ring-1', 'ring-indigo-500/20');
+                dot.className = "w-2 h-2 rounded-full bg-slate-950 scale-110 transition-all duration-150";
+                playTrackSound(track.synthType, Tone.now(), stepIndex);
+            } else {
+                btn.className = 'w-11 h-11 rounded-xl transition-all duration-150 relative flex items-center justify-center border-2 shadow-sm bg-slate-900/80 hover:bg-slate-800 border-slate-800/80 hover:border-slate-700/60';
+                if (stepIndex === 0) btn.classList.add('ring-1', 'ring-indigo-500/20');
+                dot.className = "w-2 h-2 rounded-full bg-slate-800 transition-all duration-150";
+            }
+        }
+
+        function highlightCurrentGridStep(stepIdx) {
+            document.getElementById('current-step-display').innerText = stepIdx + 1;
+
+            tracks.forEach(track => {
+                for (let i = 0; i < numBeats; i++) {
+                    const btn = document.getElementById(`step-${track.id}-${i}`);
+                    if (!btn) continue;
+
+                    if (i === stepIdx) {
+                        btn.classList.add('scale-105', 'z-10');
+                        if (sequencerData[track.id][i]) {
+                            btn.classList.add('brightness-125', 'ring-4', 'ring-white/30');
+                        } else {
+                            btn.classList.add('border-indigo-400/80', 'bg-slate-800', 'ring-2', 'ring-indigo-500/20');
+                        }
+                    } else {
+                        btn.classList.remove('scale-105', 'z-10', 'brightness-125', 'ring-4', 'ring-white/30', 'border-indigo-400/80', 'ring-2', 'ring-indigo-500/20');
+                        if (!sequencerData[track.id][i]) {
+                            btn.classList.remove('bg-slate-800');
+                            btn.classList.add('bg-slate-900/80');
+                        }
+                    }
+                }
+            });
+        }
+
+        // --- ドロップダウン(直接指定)とボタン増減の連携 ---
+        function selectBeats(val) {
+            let nextBeats = parseInt(val);
+            if (isNaN(nextBeats) || nextBeats < 3 || nextBeats > 50) return;
+            
+            updateBeatsState(nextBeats);
+        }
+
+        function adjustBeats(change) {
+            let nextBeats = numBeats + change;
+            if (nextBeats < 3) nextBeats = 3;
+            if (nextBeats > 50) nextBeats = 50;
+
+            updateBeatsState(nextBeats);
+        }
+
+        // 共通の拍数更新ステート
+        function updateBeatsState(nextBeats) {
+            if (nextBeats !== numBeats) {
+                numBeats = nextBeats;
+                
+                // 表示およびドロップダウンの選択位置を同期
+                document.getElementById('beats-select').value = numBeats;
+                document.getElementById('total-step-display').innerText = numBeats;
+                
+                tracks.forEach(track => {
+                    if (!sequencerData[track.id]) {
+                        sequencerData[track.id] = Array(numBeats).fill(false);
+                    } else if (sequencerData[track.id].length < numBeats) {
+                        while (sequencerData[track.id].length < numBeats) {
+                            sequencerData[track.id].push(false);
+                        }
+                    } else if (sequencerData[track.id].length > numBeats) {
+                        sequencerData[track.id] = sequencerData[track.id].slice(0, numBeats);
+                    }
+                });
+
+                if (audioInitialized) {
+                    setupTransportLoop();
+                }
+                renderSequencer();
+            }
+        }
+
+        function updateBeatUnit(val) {
+            beatUnit = parseInt(val);
+            if (audioInitialized) setupTransportLoop();
+            renderSequencer();
+        }
+
+        function updateTempo(val) {
+            let newBpm = parseInt(val);
+            if (isNaN(newBpm)) newBpm = 120;
+            if (newBpm < 40) newBpm = 40;
+            if (newBpm > 300) newBpm = 300;
+
+            bpm = newBpm;
+            document.getElementById('tempo-input').value = bpm;
+            document.getElementById('tempo-slider').value = bpm;
+
+            if (Tone.Transport) {
+                Tone.Transport.bpm.value = bpm;
+            }
+        }
+
+        function updateVolume(val) {
+            const percent = parseInt(val);
+            document.getElementById('volume-display').innerText = `${percent}%`;
+
+            if (mainVolumeNode) {
+                if (percent === 0) {
+                    mainVolumeNode.volume.value = -Infinity;
+                } else {
+                    const db = Tone.gainToDb(percent / 100);
+                    mainVolumeNode.volume.value = db;
+                }
+            }
+        }
+
+        function togglePlay() {
+            if (!audioInitialized) {
+                initAudio();
+                return;
+            }
+
+            const playBtn = document.getElementById('play-btn');
+            const playIcon = document.getElementById('play-icon');
+
+            if (isPlaying) {
+                Tone.Transport.stop();
+                isPlaying = false;
+                playIcon.className = "fa-solid fa-play text-2xl ml-1";
+                playBtn.className = "w-16 h-16 shrink-0 bg-emerald-500 hover:bg-emerald-400 active:scale-95 text-slate-950 font-bold rounded-2xl shadow-lg shadow-emerald-500/25 flex items-center justify-center transition-all";
+                
+                currentStep = 0;
+                highlightCurrentGridStep(-1);
+                document.getElementById('current-step-display').innerText = "1";
+            } else {
+                currentStep = 0;
+                Tone.Transport.start("+0.05");
+                isPlaying = true;
+                playIcon.className = "fa-solid fa-pause text-2xl";
+                playBtn.className = "w-16 h-16 shrink-0 bg-amber-500 hover:bg-amber-400 active:scale-95 text-slate-950 font-bold rounded-2xl shadow-lg shadow-amber-500/25 flex items-center justify-center transition-all";
+            }
+        }
+
+        function handleTap() {
+            const now = performance.now();
+            if (tapTimes.length > 0 && now - tapTimes[tapTimes.length - 1] > 2500) {
+                tapTimes = [];
+            }
+            tapTimes.push(now);
+
+            if (tapTimes.length > 1) {
+                let intervals = [];
+                for (let i = 1; i < tapTimes.length; i++) {
+                    intervals.push(tapTimes[i] - tapTimes[i - 1]);
+                }
+                const avgInterval = intervals.reduce((sum, val) => sum + val, 0) / intervals.length;
+                const calculatedBpm = Math.round(60000 / avgInterval);
+
+                if (calculatedBpm >= 40 && calculatedBpm <= 300) {
+                    updateTempo(calculatedBpm);
+                }
+            }
+            if (tapTimes.length > 8) tapTimes.shift();
+        }
+
+        function updateSignatureSummary() {
+            const sumText = `${numBeats} / ${beatUnit === 3 ? '3連符相当' : beatUnit + ' 拍子'}`;
+            const summaryEl = document.getElementById('signature-summary');
+            if (summaryEl) summaryEl.innerText = sumText;
+        }
+
+        // --- リセット & プリセット設定 ---
+        function clearAllSteps() {
+            tracks.forEach(track => {
+                sequencerData[track.id] = Array(numBeats).fill(false);
+            });
+            renderSequencer();
+            showToast("すべてのステップをクリアしました。", "fa-trash-can", "text-rose-400");
+        }
+
+        function resetToDefaultPattern() {
+            numBeats = 7;
+            beatUnit = 8;
+            
+            document.getElementById('beats-select').value = numBeats;
+            document.getElementById('total-step-display').innerText = numBeats;
+            document.getElementById('beat-unit-select').value = "8";
+
+            sequencerData = {
+                'beep-high': [true,  false, false, false, false, false, false],
+                'beep-low':  [false, false, true,  false, false, true,  false],
+                'kick':      [true,  false, false, true,  false, true,  false],
+                'snare':     [false, false, true,  false, true,  false, true],
+                'hat':       [true,  true,  true,  true,  true,  true,  true]
+            };
+
+            if (audioInitialized) setupTransportLoop();
+            renderSequencer();
+            showToast("デフォルトの7/8パターンにリセットしました。", "fa-arrow-rotate-left", "text-indigo-400");
+        }
+
+        function applyPreset(beats, unit) {
+            if (!audioInitialized) initAudio();
+
+            numBeats = beats;
+            beatUnit = unit;
+
+            document.getElementById('beats-select').value = numBeats;
+            document.getElementById('total-step-display').innerText = numBeats;
+            document.getElementById('beat-unit-select').value = beatUnit.toString();
+
+            tracks.forEach(track => {
+                sequencerData[track.id] = Array(numBeats).fill(false);
+            });
+
+            if (beats === 5) {
+                sequencerData['beep-high'][0] = true;
+                sequencerData['beep-low'][3] = true;
+                sequencerData['kick'][0] = true;
+                sequencerData['kick'][3] = true;
+                sequencerData['snare'][2] = true;
+                sequencerData['snare'][4] = true;
+                for (let i = 0; i < 5; i++) sequencerData['hat'][i] = true;
+            } 
+            else if (beats === 7) {
+                sequencerData['beep-high'][0] = true;
+                sequencerData['beep-low'][2] = true;
+                sequencerData['beep-low'][4] = true;
+                sequencerData['kick'][0] = true;
+                sequencerData['kick'][4] = true;
+                sequencerData['snare'][2] = true;
+                sequencerData['snare'][6] = true;
+                for (let i = 0; i < 7; i++) sequencerData['hat'][i] = true;
+            }
+            else if (beats === 11) {
+                sequencerData['beep-high'][0] = true;
+                sequencerData['beep-low'][3] = true;
+                sequencerData['beep-low'][5] = true;
+                sequencerData['beep-low'][8] = true;
+                sequencerData['kick'][0] = true;
+                sequencerData['kick'][5] = true;
+                sequencerData['snare'][3] = true;
+                sequencerData['snare'][8] = true;
+                for (let i = 0; i < 11; i++) {
+                    if (i % 2 === 0 || i === 10) sequencerData['hat'][i] = true;
+                }
+            }
+
+            if (audioInitialized) setupTransportLoop();
+            renderSequencer();
+            showToast(`${beats}/${unit}拍子プリセットをロードしました。`, "fa-sliders", "text-indigo-400");
+        }
+
+        // --- Firestore 連携カスタムパターン保存ロジック (RULES 1, 2, 3 Complied) ---
+        
+        // 1. Firebase 匿名サインイン & 認証状態監視 (RULE 3)
+        const initAuth = async () => {
+            try {
+                if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+                    await signInWithCustomToken(auth, __initial_auth_token);
+                } else {
+                    await signInAnonymously(auth);
+                }
+            } catch (e) {
+                console.error("Authentication failed: ", e);
+            }
+        };
+
+        onAuthStateChanged(auth, (user) => {
+            currentUser = user;
+            if (user) {
+                // 認証完了したらデータ取得の監視を開始
+                subscribeSavedPatterns();
+            }
+        });
+
+        // 2. パブリックデータパスでの監視 (RULE 1 & 2)
+        function subscribeSavedPatterns() {
+            if (!currentUser) return;
+
+            // 厳格なパス設定 (RULE 1)
+            const collectionRef = collection(db, 'artifacts', appId, 'public', 'data', 'patterns');
+            
+            // 複合クエリを避け、単純な全件取得からJSでソートする (RULE 2)
+            const q = query(collectionRef);
+
+            onSnapshot(q, (snapshot) => {
+                const patternsList = [];
+                snapshot.forEach((doc) => {
+                    patternsList.push({
+                        id: doc.id,
+                        ...doc.data()
+                    });
+                });
+
+                // メモリ上でのソート処理（新しく追加した順） (RULE 2)
+                patternsList.sort((a, b) => {
+                    const timeA = a.createdAt?.seconds || 0;
+                    const timeB = b.createdAt?.seconds || 0;
+                    return timeB - timeA;
+                });
+
+                renderSavedPatternsList(patternsList);
+            }, (error) => {
+                console.error("Firestore read error: ", error);
+            });
+        }
+
+        // 3. 現在のリズムを保存
+        async function saveCurrentPattern() {
+            if (!currentUser) {
+                showToast("データベースへの接続を待機中...", "fa-triangle-exclamation", "text-amber-400");
+                return;
+            }
+
+            const nameInput = document.getElementById('pattern-name-input');
+            const patternName = nameInput.value.trim();
+
+            if (!patternName) {
+                showToast("リズムの名前を入力してください。", "fa-triangle-exclamation", "text-amber-400");
+                return;
+            }
+
+            const docData = {
+                name: patternName,
+                bpm: bpm,
+                numBeats: numBeats,
+                beatUnit: beatUnit,
+                sequencerData: JSON.parse(JSON.stringify(sequencerData)), // Deep Copy
+                userId: currentUser.uid,
+                createdAt: { seconds: Math.floor(Date.now() / 1000) } // timestamp代替
+            };
+
+            try {
+                const collectionRef = collection(db, 'artifacts', appId, 'public', 'data', 'patterns');
+                await addDoc(collectionRef, docData);
+                
+                nameInput.value = '';
+                showToast(`「${patternName}」をクラウドに保存しました！`, "fa-cloud-arrow-up", "text-emerald-400");
+            } catch (err) {
+                console.error("Firestore save error: ", err);
+                showToast("保存に失敗しました。", "fa-circle-exclamation", "text-rose-400");
+            }
+        }
+
+        // 4. 保存リストのレンダリング
+        function renderSavedPatternsList(list) {
+            const container = document.getElementById('saved-patterns-container');
+            const listEl = document.getElementById('saved-patterns-list');
+            
+            if (list.length === 0) {
+                container.classList.add('hidden');
+                return;
+            }
+
+            container.classList.remove('hidden');
+            listEl.innerHTML = '';
+
+            list.forEach(pattern => {
+                const card = document.createElement('div');
+                card.className = "bg-slate-950/80 border border-slate-800/80 hover:border-indigo-500/40 rounded-xl p-3 flex flex-col justify-between gap-3 group transition-all";
+                
+                const formattedTime = pattern.createdAt?.seconds 
+                    ? new Date(pattern.createdAt.seconds * 1000).toLocaleDateString('ja-JP')
+                    : '不明';
+
+                card.innerHTML = `
+                    <div>
+                        <div class="flex items-start justify-between">
+                            <span class="text-xs font-bold text-slate-200 line-clamp-1 group-hover:text-indigo-400 transition-colors" title="${pattern.name}">${pattern.name}</span>
+                            <span class="text-[10px] text-slate-500 shrink-0 font-mono font-medium">${formattedTime}</span>
+                        </div>
+                        <div class="flex items-center gap-2 mt-1.5 text-[11px] text-slate-400 font-mono font-bold">
+                            <span class="bg-indigo-950/50 text-indigo-400 px-1.5 py-0.5 rounded border border-indigo-950">${pattern.numBeats}/${pattern.beatUnit} 拍子</span>
+                            <span>•</span>
+                            <span>${pattern.bpm} BPM</span>
+                        </div>
+                    </div>
+                    <div class="flex gap-1.5 border-t border-slate-900 pt-2 mt-1">
+                        <button class="flex-grow py-1 bg-indigo-600 hover:bg-indigo-500 active:scale-95 text-white font-bold text-[10px] rounded-lg transition-all flex items-center justify-center gap-1" onclick="window.loadPattern('${pattern.id}')">
+                            <i class="fa-solid fa-cloud-arrow-down"></i> 読み込む
+                        </button>
+                        <button class="px-2.5 py-1 bg-slate-900 hover:bg-rose-500/15 hover:text-rose-400 text-slate-500 rounded-lg transition-all text-[10px]" onclick="window.deletePattern('${pattern.id}', '${pattern.name}')">
+                            <i class="fa-solid fa-trash-can"></i>
+                        </button>
+                    </div>
+                `;
+
+                // ロード処理・削除処理のためにデータ参照をグローバルに持たせる
+                if (!window.loadedPatternsCache) window.loadedPatternsCache = {};
+                window.loadedPatternsCache[pattern.id] = pattern;
+
+                listEl.appendChild(card);
+            });
+        }
+
+        // 5. 保存パターンのロード
+        window.loadPattern = function(patternId) {
+            const pattern = window.loadedPatternsCache?.[patternId];
+            if (!pattern) return;
+
+            bpm = pattern.bpm;
+            numBeats = pattern.numBeats;
+            beatUnit = pattern.beatUnit;
+            sequencerData = JSON.parse(JSON.stringify(pattern.sequencerData));
+
+            // UI反映
+            document.getElementById('tempo-input').value = bpm;
+            document.getElementById('tempo-slider').value = bpm;
+            document.getElementById('beats-select').value = numBeats;
+            document.getElementById('total-step-display').innerText = numBeats;
+            document.getElementById('beat-unit-select').value = beatUnit.toString();
+
+            if (audioInitialized) {
+                setupTransportLoop();
+            }
+            renderSequencer();
+            showToast(`パターン「${pattern.name}」をロードしました！`, "fa-folder-open", "text-indigo-400");
+        };
+
+        // 6. パターンの削除
+        window.deletePattern = async function(patternId, patternName) {
+            if (!currentUser) return;
+
+            const confirmDelete = confirm(`リズム「${patternName}」をクラウドから完全に削除しますか？`);
+            if (!confirmDelete) return;
+
+            try {
+                const docRef = doc(db, 'artifacts', appId, 'public', 'data', 'patterns', patternId);
+                await deleteDoc(docRef);
+                showToast(`「${patternName}」を削除しました。`, "fa-trash-can", "text-rose-400");
+            } catch (err) {
+                console.error("Firestore delete error: ", err);
+                showToast("削除に失敗しました。", "fa-circle-exclamation", "text-rose-400");
+            }
+        };
+
+        // --- 各種エクスポート用グローバルバインド ---
+        window.initAudio = initAudio;
+        window.togglePlay = togglePlay;
+        window.updateTempo = updateTempo;
+        window.adjustBeats = adjustBeats;
+        window.selectBeats = selectBeats;
+        window.updateBeatUnit = updateBeatUnit;
+        window.updateVolume = updateVolume;
+        window.handleTap = handleTap;
+        window.clearAllSteps = clearAllSteps;
+        window.resetToDefaultPattern = resetToDefaultPattern;
+        window.applyPreset = applyPreset;
+        window.previewInstrument = playTrackSound;
+        window.saveCurrentPattern = saveCurrentPattern;
+
+        // --- トースト関数 ---
+        function showToast(message, iconClass = "fa-circle-check", colorClass = "text-emerald-400") {
+            const toast = document.getElementById('toast');
+            const toastMsg = document.getElementById('toast-msg');
+            const toastIcon = document.getElementById('toast-icon');
+
+            toastMsg.innerText = message;
+            toastIcon.className = `fa-solid ${iconClass} ${colorClass}`;
+
+            toast.classList.remove('opacity-0', 'translate-y-20', 'pointer-events-none');
+            toast.classList.add('opacity-100', 'translate-y-0');
+
+            setTimeout(() => {
+                toast.classList.remove('opacity-100', 'translate-y-0');
+                toast.classList.add('opacity-0', 'translate-y-20', 'pointer-events-none');
+            }, 2500);
+        }
+
+        // --- アプリケーション起動 ---
+        window.addEventListener('DOMContentLoaded', () => {
+            initBeatsDropdown();
+            renderSequencer();
+            document.getElementById('total-step-display').innerText = numBeats;
+            initAuth();
+        });
+    </script>
+</body>
+</html>
