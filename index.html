@@ -130,7 +130,6 @@
                                         <!-- オプションは動的に生成されます (3-50) -->
                                     </select>
                                     <div class="absolute right-0 top-1/2 -translate-y-1/2 pointer-events-none text-[8px] text-indigo-400/50">
-                                        <!-- 三角アイコンを配置 -->
                                     </div>
                                 </div>
 
@@ -229,12 +228,19 @@
                         <h2 class="text-base font-bold text-slate-200">ステップシーケンサー</h2>
                         <p class="text-xs text-slate-500 mt-0.5">縦：音色トラック / 横：時間ステップ（クリックして発音予約。横スクロール可能）</p>
                     </div>
-                    <!-- ビジュアルインジケーター（再生中の進行状況） -->
-                    <div class="flex items-center gap-1 bg-slate-950 px-3 py-1.5 rounded-xl border border-slate-800 max-w-xs self-start sm:self-auto">
-                        <span class="text-[10px] text-slate-500 font-bold uppercase tracking-wider mr-1">Step:</span>
-                        <span id="current-step-display" class="font-mono text-sm font-bold text-indigo-400 min-w-[20px] text-center">1</span>
-                        <span class="text-slate-600 font-mono">/</span>
-                        <span id="total-step-display" class="font-mono text-sm font-bold text-slate-400 min-w-[20px] text-center">7</span>
+                    <!-- ビジュアルインジケーター（再生中の進行状況 & ミニ再生コントロール） -->
+                    <div class="flex items-center gap-2 self-start sm:self-auto">
+                        <!-- スマホ向けミニ再生/一時停止ボタン -->
+                        <button id="mini-play-btn" onclick="togglePlay()" class="w-8 h-8 bg-emerald-500 hover:bg-emerald-400 active:scale-90 text-slate-950 font-bold rounded-lg flex items-center justify-center transition-all shadow-md shadow-emerald-500/10" title="再生 / 一時停止">
+                            <i id="mini-play-icon" class="fa-solid fa-play text-xs ml-0.5"></i>
+                        </button>
+                        
+                        <div class="flex items-center gap-1 bg-slate-950 px-3 py-1.5 rounded-xl border border-slate-800 max-w-xs">
+                            <span class="text-[10px] text-slate-500 font-bold uppercase tracking-wider mr-1">Step:</span>
+                            <span id="current-step-display" class="font-mono text-sm font-bold text-indigo-400 min-w-[20px] text-center">1</span>
+                            <span class="text-slate-600 font-mono">/</span>
+                            <span id="total-step-display" class="font-mono text-sm font-bold text-slate-400 min-w-[20px] text-center">7</span>
+                        </div>
                     </div>
                 </div>
 
@@ -303,7 +309,6 @@
 
         // --- 安全なFirebase初期化 (環境変数チェック) ---
         try {
-            // __firebase_config が定義されており、かつ中身が空でない場合のみFirebaseを起動
             if (typeof __firebase_config !== 'undefined' && __firebase_config) {
                 const firebaseConfig = JSON.parse(__firebase_config);
                 const app = initializeApp(firebaseConfig);
@@ -750,12 +755,20 @@
 
             const playBtn = document.getElementById('play-btn');
             const playIcon = document.getElementById('play-icon');
+            const miniPlayBtn = document.getElementById('mini-play-btn');
+            const miniPlayIcon = document.getElementById('mini-play-icon');
 
             if (isPlaying) {
                 Tone.Transport.stop();
                 isPlaying = false;
+                
+                // メインボタンを停止状態に
                 playIcon.className = "fa-solid fa-play text-2xl ml-1";
                 playBtn.className = "w-16 h-16 shrink-0 bg-emerald-500 hover:bg-emerald-400 active:scale-95 text-slate-950 font-bold rounded-2xl shadow-lg shadow-emerald-500/25 flex items-center justify-center transition-all";
+                
+                // ミニボタンを停止状態に
+                miniPlayIcon.className = "fa-solid fa-play text-xs ml-0.5";
+                miniPlayBtn.className = "w-8 h-8 bg-emerald-500 hover:bg-emerald-400 active:scale-90 text-slate-950 font-bold rounded-lg flex items-center justify-center transition-all shadow-md shadow-emerald-500/10";
                 
                 currentStep = 0;
                 highlightCurrentGridStep(-1);
@@ -764,8 +777,14 @@
                 currentStep = 0;
                 Tone.Transport.start("+0.05");
                 isPlaying = true;
+                
+                // メインボタンを再生中状態に
                 playIcon.className = "fa-solid fa-pause text-2xl";
                 playBtn.className = "w-16 h-16 shrink-0 bg-amber-500 hover:bg-amber-400 active:scale-95 text-slate-950 font-bold rounded-2xl shadow-lg shadow-amber-500/25 flex items-center justify-center transition-all";
+                
+                // ミニボタンを再生中状態に
+                miniPlayIcon.className = "fa-solid fa-pause text-xs";
+                miniPlayBtn.className = "w-8 h-8 bg-amber-500 hover:bg-amber-400 active:scale-90 text-slate-950 font-bold rounded-lg flex items-center justify-center transition-all shadow-md shadow-amber-500/10";
             }
         }
 
@@ -884,14 +903,10 @@
         }
 
         // --- Firebase / LocalStorage ハイブリッド保存ロジック ---
-        
-        // ローカルストレージキー
         const LOCAL_STORAGE_KEY = 'poly_metronome_patterns';
 
-        // 1. 認証の初期化 (Firebase が使用可能な場合のみ実行)
         const initAuth = async () => {
             if (!useFirebase || !auth) {
-                // Firebase非対応環境(GitHub)時はLocalStorageから初期ロード
                 loadPatternsFromLocalStorage();
                 updateUIForLocalMode();
                 return;
@@ -904,21 +919,18 @@
                 }
             } catch (e) {
                 console.error("Authentication failed: ", e);
-                // 認証エラー時は安全にローカルストレージモードへ移行
                 useFirebase = false;
                 loadPatternsFromLocalStorage();
                 updateUIForLocalMode();
             }
         };
 
-        // Firebase 認証状態監視
         if (useFirebase && auth) {
             onAuthStateChanged(auth, (user) => {
                 currentUser = user;
                 if (user) {
                     subscribeSavedPatterns();
                 } else {
-                    // 認証エラー、またはログアウト時
                     useFirebase = false;
                     loadPatternsFromLocalStorage();
                     updateUIForLocalMode();
@@ -926,7 +938,6 @@
             });
         }
 
-        // GitHub環境向けのUI切り替え
         function updateUIForLocalMode() {
             const titleEl = document.getElementById('save-section-title');
             const descEl = document.getElementById('save-section-desc');
@@ -943,7 +954,6 @@
             if (listTitle) listTitle.innerText = "保存されたカスタムリズム (ローカル)";
         }
 
-        // 2. クラウドデータのリアルタイム監視 (Firebase使用時)
         function subscribeSavedPatterns() {
             if (!useFirebase || !currentUser || !db) return;
 
@@ -974,7 +984,6 @@
             });
         }
 
-        // 3. ローカルストレージデータの読み込み
         function loadPatternsFromLocalStorage() {
             try {
                 const raw = localStorage.getItem(LOCAL_STORAGE_KEY);
@@ -985,7 +994,6 @@
             }
         }
 
-        // 4. 新規パターンの保存
         async function saveCurrentPattern() {
             const nameInput = document.getElementById('pattern-name-input');
             const patternName = nameInput ? nameInput.value.trim() : '';
@@ -1005,7 +1013,6 @@
             };
 
             if (useFirebase && currentUser && db) {
-                // Firebase (クラウド) 保存
                 try {
                     docData.userId = currentUser.uid;
                     const collectionRef = collection(db, 'artifacts', appId, 'public', 'data', 'patterns');
@@ -1018,13 +1025,12 @@
                     showToast("保存に失敗しました。", "fa-circle-exclamation", "text-rose-400");
                 }
             } else {
-                // LocalStorage (ローカル) 保存
                 try {
                     const raw = localStorage.getItem(LOCAL_STORAGE_KEY);
                     const list = raw ? JSON.parse(raw) : [];
                     
                     docData.id = 'local_' + Date.now();
-                    list.unshift(docData); // 先頭に追加
+                    list.unshift(docData); 
                     
                     localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(list));
                     if (nameInput) nameInput.value = '';
@@ -1038,7 +1044,6 @@
             }
         }
 
-        // 5. 保存パターンの読み込みリスト描画
         function renderSavedPatternsList(list) {
             const container = document.getElementById('saved-patterns-container');
             const listEl = document.getElementById('saved-patterns-list');
@@ -1083,7 +1088,6 @@
                     </div>
                 `;
 
-                // ロード用キャッシュ
                 if (!window.loadedPatternsCache) window.loadedPatternsCache = {};
                 window.loadedPatternsCache[pattern.id] = pattern;
 
@@ -1091,7 +1095,6 @@
             });
         }
 
-        // 6. パターンのロード実行
         window.loadPattern = function(patternId) {
             const pattern = window.loadedPatternsCache?.[patternId];
             if (!pattern) return;
@@ -1120,13 +1123,11 @@
             showToast(`パターン「${pattern.name}」をロードしました！`, "fa-folder-open", "text-indigo-400");
         };
 
-        // 7. パターンの削除実行
         window.deletePattern = async function(patternId, patternName) {
             const confirmDelete = confirm(`リズム「${patternName}」を完全に削除しますか？`);
             if (!confirmDelete) return;
 
             if (useFirebase && db) {
-                // クラウド削除
                 try {
                     const docRef = doc(db, 'artifacts', appId, 'public', 'data', 'patterns', patternId);
                     await deleteDoc(docRef);
@@ -1136,7 +1137,6 @@
                     showToast("削除に失敗しました。", "fa-circle-exclamation", "text-rose-400");
                 }
             } else {
-                // ローカル削除
                 try {
                     const raw = localStorage.getItem(LOCAL_STORAGE_KEY);
                     let list = raw ? JSON.parse(raw) : [];
